@@ -23,7 +23,7 @@ def obtener_juegos_hoy():
     if API_KEY == "" or API_KEY == "TU_API_KEY_AQUI":
         return [
             {"id": "1", "away": "CIN", "home": "MIL", "time": "6:40p", "epoch": 1, "texto": "6:40p — CIN @ MIL", "v_id": "", "l_id": ""},
-            {"id": "2", "texto": "8:05p — TEX @ OAK", "away": "TEX", "home": "OAK", "time": "8:05p", "epoch": 2, "v_id": "", "l_id": ""}
+            {"id": "2", "away": "TEX", "home": "OAK", "time": "8:05p", "epoch": 2, "texto": "8:05p — TEX @ OAK", "v_id": "", "l_id": ""}
         ]
         
     try:
@@ -63,7 +63,6 @@ def obtener_juegos_hoy():
                 "l_id": home_id
             })
                 
-        # ORDENAR CRONOLÓGICAMENTE POR HORA
         juegos.sort(key=lambda x: x["epoch"])
         return juegos
     except Exception as e:
@@ -143,138 +142,220 @@ def limpiar_parlay():
     st.session_state.parlay = []
     st.rerun()
 
-# --- 4. INTERFAZ PRINCIPAL ESTILO SOFASCORE ---
-st.title("⚾ AI Felix Picks Analyst — Dashboard Quirúrgico")
+# --- 4. INTERFAZ PRINCIPAL ---
+st.title("⚾ AI Sports Analyst — Dashboard Quirúrgico")
 
-col_lista, col_detalle = st.columns([3, 7])
+# Pestañas principales de navegación en la app
+tab_analizador, tab_ia_picks = st.tabs(["🏟️ Analizador por Partido", "🤖 AI Smart Picks (Escáner)"])
 
-with col_lista:
-    st.markdown("### ⚡ Partidos de Hoy")
-    juegos_hoy = obtener_juegos_hoy()
+juegos_hoy = obtener_juegos_hoy()
+
+# ==========================================
+# PESTAÑA 1: ANALIZADOR INDIVIDUAL (ESTILO SOFASCORE)
+# ==========================================
+with tab_analizador:
+    col_lista, col_detalle = st.columns([3, 7])
+
+    with col_lista:
+        st.markdown("### ⚡ Partidos de Hoy")
+        if juegos_hoy:
+            opciones_juegos = {j["texto"]: j for j in juegos_hoy}
+            juego_seleccionado = st.radio("Selecciona un encuentro:", options=list(opciones_juegos.keys()), label_visibility="collapsed")
+            datos_juego = opciones_juegos[juego_seleccionado]
+        else:
+            st.warning("No hay juegos hoy.")
+            datos_juego = None
+
+    with col_detalle:
+        if datos_juego:
+            nombre_v_inicial = obtener_nombre_pitcher(datos_juego["v_id"])
+            nombre_l_inicial = obtener_nombre_pitcher(datos_juego["l_id"])
+            
+            away_team = datos_juego["away"]
+            home_team = datos_juego["home"]
+            game_time = datos_juego["time"]
+            
+            logo_away = f"https://a.espncdn.com/i/teamlogos/mlb/500/{away_team.lower()}.png"
+            logo_home = f"https://a.espncdn.com/i/teamlogos/mlb/500/{home_team.lower()}.png"
+            
+            with st.container(border=True):
+                col_lg1, col_info, col_lg2 = st.columns([2, 3, 2])
+                with col_lg1:
+                    st.image(logo_away, width=35)
+                    st.markdown(f"<div style='text-align: left;'><b>{away_team}</b> <span style='font-size: 11px; color: gray;'>Visita</span></div>", unsafe_allow_html=True)
+                with col_info:
+                    st.markdown(f"<div style='text-align: center;'><h4 style='color: #1ed760; margin: 0;'>VS</h4><p style='margin: 0; font-size: 13px;'>🕒 {game_time}</p></div>", unsafe_allow_html=True)
+                with col_lg2:
+                    st.image(logo_home, width=35)
+                    st.markdown(f"<div style='text-align: right;'><b>{home_team}</b> <span style='font-size: 11px; color: gray;'>Local</span></div>", unsafe_allow_html=True)
+                
+                st.divider()
+                
+                c_inf1, c_inf2, c_btn = st.columns([4, 4, 3])
+                with c_inf1: 
+                    busqueda_v = st.text_input(f"Pitcher Visita", value=nombre_v_inicial, key=f"v_{datos_juego['id']}")
+                with c_inf2: 
+                    busqueda_l = st.text_input(f"Pitcher Local", value=nombre_l_inicial, key=f"l_{datos_juego['id']}")
+                with c_btn:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    generar = st.button("🚀 Analizar", type="primary", use_container_width=True)
+
+                if generar:
+                    with st.spinner("Calculando sabermetría..."):
+                        datos_v, err_v = obtener_estadisticas_avanzadas(busqueda_v)
+                        datos_l, err_l = obtener_estadisticas_avanzadas(busqueda_l)
+                        
+                        if err_v: st.error(err_v)
+                        if err_l: st.error(err_l)
+                        
+                        if datos_v and datos_l:
+                            st.session_state.v = datos_v
+                            st.session_state.l = datos_l
+
+            if 'v' in st.session_state:
+                v = st.session_state.v
+                l = st.session_state.l
+                
+                m1, m2, m3 = st.columns(3)
+                with m1: st.caption(f"**FIP:** {v['nombre'].split()[-1]} `{v['fip']}` | {l['nombre'].split()[-1]} `{l['fip']}`")
+                with m2: st.caption(f"**K/9:** {v['k9']} vs {l['k9']}")
+                with m3: st.caption(f"**BB/9:** {v['bb9']} vs {l['bb9']}")
+                
+                st.divider()
+
+                col_m1, col_m2 = st.columns(2)
+                
+                with col_m1:
+                    with st.container(border=True):
+                        st.markdown("**🏆 Ganador (ML)**")
+                        poder_v = v['k9'] - (v['fip'] + (v['bb9']*1.5))
+                        poder_l = l['k9'] - (l['fip'] + (l['bb9']*1.5))
+                        
+                        if poder_v > poder_l + 1.0:
+                            if st.button(f"Gana {away_team} (-115)", key="ml_v", use_container_width=True): 
+                                agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {away_team}", "-115")
+                        elif poder_l > poder_v + 1.0:
+                            if st.button(f"Gana {home_team} (-120)", key="ml_l", use_container_width=True): 
+                                agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {home_team}", "-120")
+                        else:
+                            st.caption("⚠️ Empate técnico")
+
+                    with st.container(border=True):
+                        st.markdown("**🎯 Ponches (K's)**")
+                        proj_v = round((v['k9'] / 9) * 6, 1)
+                        proj_l = round((l['k9'] / 9) * 6, 1)
+                        
+                        if st.button(f"{v['nombre'].split()[-1]} Over {int(proj_v)-0.5} (-115)", key="kv", use_container_width=True): 
+                            agregar_al_parlay(datos_juego['texto'], "Ponches", f"{v['nombre']} Over {int(proj_v)-0.5}", "-115")
+                        if st.button(f"{l['nombre'].split()[-1]} Over {int(proj_l)-0.5} (-115)", key="kl", use_container_width=True): 
+                            agregar_al_parlay(datos_juego['texto'], "Ponches", f"{l['nombre']} Over {int(proj_l)-0.5}", "-115")
+
+                with col_m2:
+                    with st.container(border=True):
+                        st.markdown("**🔥 1ra Entrada**")
+                        riesgo_quirurgico = v['fip'] + l['fip'] + (v['bb9']*1.2) + (l['bb9']*1.2)
+                        if riesgo_quirurgico < 10.5:
+                            if st.button("Añadir NRFI (-130)", key="nrfi", use_container_width=True): 
+                                agregar_al_parlay(datos_juego['texto'], "1ra Entrada", "NRFI", "-130")
+                        else:
+                            if st.button("Añadir YRFI (-110)", key="yrfi", use_container_width=True): 
+                                agregar_al_parlay(datos_juego['texto'], "1ra Entrada", "YRFI", "-110")
+
+                    with st.container(border=True):
+                        st.markdown("**📈 Carreras Totales**")
+                        total_quirurgico = (v['fip'] + l['fip']) * 1.10
+                        st.caption(f"Proyectadas: {total_quirurgico:.1f}")
+                        
+                        if total_quirurgico > 8.5:
+                            if st.button("Over 8.5 Carreras (-110)", key="over", use_container_width=True): 
+                                agregar_al_parlay(datos_juego['texto'], "Totales", "Over 8.5", "-110")
+                        else:
+                            if st.button("Under 8.5 Carreras (-110)", key="under", use_container_width=True): 
+                                agregar_al_parlay(datos_juego['texto'], "Totales", "Under 8.5", "-110")
+
+# ==========================================
+# PESTAÑA 2: AI SMART PICKS (ESCANÉO AUTOMÁTICO)
+# ==========================================
+with tab_ia_picks:
+    st.markdown("### 🤖 Centro de Inteligencia Artificial — Picks del Día")
+    st.markdown("La IA escanea toda la cartelera de la MLB procesando las métricas FIP, K/9 y BB/9 de los abridores para entregarte las selecciones de mayor valor.")
     
-    if juegos_hoy:
-        opciones_juegos = {j["texto"]: j for j in juegos_hoy}
-        juego_seleccionado = st.radio("Selecciona un encuentro:", options=list(opciones_juegos.keys()), label_visibility="collapsed")
-        datos_juego = opciones_juegos[juego_seleccionado]
-    else:
-        st.warning("No hay juegos hoy.")
-        datos_juego = None
+    if st.button("⚡ Escanear Toda la Jornada con IA", type="primary"):
+        if not juegos_hoy:
+            st.warning("No hay juegos disponibles para escanear hoy.")
+        else:
+            picks_ia_encontrados = []
+            
+            with st.spinner("Analizando la sabermetría de todos los encuentros en la nube..."):
+                for juego in juegos_hoy:
+                    id_v = juego["v_id"]
+                    id_l = juego["l_id"]
+                    nombre_v = obtener_nombre_pitcher(id_v)
+                    nombre_l = obtener_nombre_pitcher(id_l)
+                    
+                    if nombre_v != "TBA" and nombre_l != "TBA":
+                        stats_v, _ = obtener_estadisticas_avanzadas(nombre_v)
+                        stats_l, _ = obtener_estadisticas_avanzadas(nombre_l)
+                        
+                        if stats_v and stats_l:
+                            # Lógica de ML
+                            poder_v = stats_v['k9'] - (stats_v['fip'] + (stats_v['bb9']*1.5))
+                            poder_l = stats_l['k9'] - (stats_l['fip'] + (stats_l['bb9']*1.5))
+                            
+                            if poder_v > poder_l + 1.2:
+                                picks_ia_encontrados.append({
+                                    "partido": juego["texto"],
+                                    "mercado": "Moneyline",
+                                    "seleccion": f"Gana {juego['away']}",
+                                    "cuota": "-115",
+                                    "razon": f"FIP superior ({stats_v['fip']} vs {stats_l['fip']}) y mejor control de ponches."
+                                })
+                            elif poder_l > poder_v + 1.2:
+                                picks_ia_encontrados.append({
+                                    "partido": juego["texto"],
+                                    "mercado": "Moneyline",
+                                    "seleccion": f"Gana {juego['home']}",
+                                    "cuota": "-120",
+                                    "razon": f"Ventaja clara de localía y FIP de {stats_l['fip']}."
+                                })
+                                
+                            # Lógica NRFI
+                            riesgo = stats_v['fip'] + stats_l['fip'] + (stats_v['bb9']*1.2) + (stats_l['bb9']*1.2)
+                            if riesgo < 10.0:
+                                picks_ia_encontrados.append({
+                                    "partido": juego["texto"],
+                                    "mercado": "1ra Entrada",
+                                    "seleccion": "NRFI",
+                                    "cuota": "-130",
+                                    "razon": f"Bajo riesgo combinado en 1ra entrada (FIPs óptimos y bajo BB/9)."
+                                })
+            
+            st.session_state.picks_ia = picks_ia_encontrados
 
-with col_detalle:
-    if datos_juego:
-        nombre_v_inicial = obtener_nombre_pitcher(datos_juego["v_id"])
-        nombre_l_inicial = obtener_nombre_pitcher(datos_juego["l_id"])
+    # Mostrar resultados del escaneo si existen
+    if 'picks_ia' in st.session_state and st.session_state.picks_ia:
+        st.success(f"¡Se encontraron **{len(st.session_state.picks_ia)} selecciones de alto valor** con base en sabermetría!")
         
-        away_team = datos_juego["away"]
-        home_team = datos_juego["home"]
-        game_time = datos_juego["time"]
-        
-        logo_away = f"https://a.espncdn.com/i/teamlogos/mlb/500/{away_team.lower()}.png"
-        logo_home = f"https://a.espncdn.com/i/teamlogos/mlb/500/{home_team.lower()}.png"
-        
-        # CABECERA SOFASCORE CON LOGOS MÁS PEQUEÑOS Y COMPACTOS
-        with st.container(border=True):
-            col_lg1, col_info, col_lg2 = st.columns([2, 3, 2])
-            with col_lg1:
-                st.image(logo_away, width=35) # Tamaño reducido
-                st.markdown(f"<div style='text-align: left;'><b>{away_team}</b> <span style='font-size: 11px; color: gray;'>Visita</span></div>", unsafe_allow_html=True)
-            with col_info:
-                st.markdown(f"<div style='text-align: center;'><h4 style='color: #1ed760; margin: 0;'>VS</h4><p style='margin: 0; font-size: 13px;'>🕒 {game_time}</p></div>", unsafe_allow_html=True)
-            with col_lg2:
-                st.image(logo_home, width=35) # Tamaño reducido
-                st.markdown(f"<div style='text-align: right;'><b>{home_team}</b> <span style='font-size: 11px; color: gray;'>Local</span></div>", unsafe_allow_html=True)
-            
-            st.divider()
-            
-            c_inf1, c_inf2, c_btn = st.columns([4, 4, 3])
-            with c_inf1: 
-                busqueda_v = st.text_input(f"Pitcher Visita", value=nombre_v_inicial, key=f"v_{datos_juego['id']}")
-            with c_inf2: 
-                busqueda_l = st.text_input(f"Pitcher Local", value=nombre_l_inicial, key=f"l_{datos_juego['id']}")
-            with c_btn:
-                st.markdown("<br>", unsafe_allow_html=True)
-                generar = st.button("🚀 Analizar", type="primary", use_container_width=True)
-
-            if generar:
-                with st.spinner("Calculando sabermetría..."):
-                    datos_v, err_v = obtener_estadisticas_avanzadas(busqueda_v)
-                    datos_l, err_l = obtener_estadisticas_avanzadas(busqueda_l)
-                    
-                    if err_v: st.error(err_v)
-                    if err_l: st.error(err_l)
-                    
-                    if datos_v and datos_l:
-                        st.session_state.v = datos_v
-                        st.session_state.l = datos_l
-
-        # Cuadrícula compacta de mercados si ya se procesó
-        if 'v' in st.session_state:
-            v = st.session_state.v
-            l = st.session_state.l
-            
-            m1, m2, m3 = st.columns(3)
-            with m1: st.caption(f"**FIP:** {v['nombre'].split()[-1]} `{v['fip']}` | {l['nombre'].split()[-1]} `{l['fip']}`")
-            with m2: st.caption(f"**K/9:** {v['k9']} vs {l['k9']}")
-            with m3: st.caption(f"**BB/9:** {v['bb9']} vs {l['bb9']}")
-            
-            st.divider()
-
-            col_m1, col_m2 = st.columns(2)
-            
-            with col_m1:
-                with st.container(border=True):
-                    st.markdown("**🏆 Ganador (ML)**")
-                    poder_v = v['k9'] - (v['fip'] + (v['bb9']*1.5))
-                    poder_l = l['k9'] - (l['fip'] + (l['bb9']*1.5))
-                    
-                    if poder_v > poder_l + 1.0:
-                        if st.button(f"Gana {away_team} (-115)", key="ml_v", use_container_width=True): 
-                            agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {away_team}", "-115")
-                    elif poder_l > poder_v + 1.0:
-                        if st.button(f"Gana {home_team} (-120)", key="ml_l", use_container_width=True): 
-                            agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {home_team}", "-120")
-                    else:
-                        st.caption("⚠️ Empate técnico")
-
-                with st.container(border=True):
-                    st.markdown("**🎯 Ponches (K's)**")
-                    proj_v = round((v['k9'] / 9) * 6, 1)
-                    proj_l = round((l['k9'] / 9) * 6, 1)
-                    
-                    if st.button(f"{v['nombre'].split()[-1]} Over {int(proj_v)-0.5} (-115)", key="kv", use_container_width=True): 
-                        agregar_al_parlay(datos_juego['texto'], "Ponches", f"{v['nombre']} Over {int(proj_v)-0.5}", "-115")
-                    if st.button(f"{l['nombre'].split()[-1]} Over {int(proj_l)-0.5} (-115)", key="kl", use_container_width=True): 
-                        agregar_al_parlay(datos_juego['texto'], "Ponches", f"{l['nombre']} Over {int(proj_l)-0.5}", "-115")
-
-            with col_m2:
-                with st.container(border=True):
-                    st.markdown("**🔥 1ra Entrada**")
-                    riesgo_quirurgico = v['fip'] + l['fip'] + (v['bb9']*1.2) + (l['bb9']*1.2)
-                    if riesgo_quirurgico < 10.5:
-                        if st.button("Añadir NRFI (-130)", key="nrfi", use_container_width=True): 
-                            agregar_al_parlay(datos_juego['texto'], "1ra Entrada", "NRFI", "-130")
-                    else:
-                        if st.button("Añadir YRFI (-110)", key="yrfi", use_container_width=True): 
-                            agregar_al_parlay(datos_juego['texto'], "1ra Entrada", "YRFI", "-110")
-
-                with st.container(border=True):
-                    st.markdown("**📈 Carreras Totales**")
-                    total_quirurgico = (v['fip'] + l['fip']) * 1.10
-                    st.caption(f"Proyectadas: {total_quirurgico:.1f}")
-                    
-                    if total_quirurgico > 8.5:
-                        if st.button("Over 8.5 Carreras (-110)", key="over", use_container_width=True): 
-                            agregar_al_parlay(datos_juego['texto'], "Totales", "Over 8.5", "-110")
-                    else:
-                        if st.button("Under 8.5 Carreras (-110)", key="under", use_container_width=True): 
-                            agregar_al_parlay(datos_juego['texto'], "Totales", "Under 8.5", "-110")
+        for idx, pick in enumerate(st.session_state.picks_ia):
+            with st.container(border=True):
+                col_p1, col_p2 = st.columns([3, 1])
+                with col_p1:
+                    st.markdown(f"⚾ **{pick['partido']}**")
+                    st.markdown(f"🎯 **{pick['mercado']}:** `{pick['seleccion']}` (`{pick['cuota']}`)")
+                    st.caption(f"💡 *Análisis IA:* {pick['razon']}")
+                with col_p2:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.button("Añadir al Boleto", key=f"ai_btn_{idx}", use_container_width=True):
+                        agregar_al_parlay(pick['partido'], pick['mercado'], pick['seleccion'], pick['cuota'])
+    elif 'picks_ia' in st.session_state:
+        st.info("El escaneo finalizó, pero no se encontraron diferencias drásticas en los abridores confirmados de hoy para otorgar un 'Lock'. Intenta más tarde cuando haya más abridores confirmados.")
 
 # --- 5. BARRA LATERAL: BOLETO DE PARLAY ---
 with st.sidebar:
     st.markdown("### 🎫 MI ENTRADA")
     
     if len(st.session_state.parlay) == 0:
-        st.caption("No hay selecciones en tu boleto. Explora los partidos y genera tus picks.")
+        st.caption("No hay selecciones en tu boleto. Explora los partidos o usa el escáner de IA.")
     else:
         cuota_decimal_total = 1.0
         for pick in st.session_state.parlay:
