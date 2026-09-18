@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Sports Insights | Predictor 1ra Entrada</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; }
+        .card { background-color: #1e293b; border: 1px solid #334155; }
+    </style>
+</head>
+<body class="p-6 font-sans">
+
+    <div class="max-w-4xl mx-auto">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
+            <h1 class="text-2xl font-bold text-blue-400">AI Sports Analyst</h1>
+            <span class="bg-blue-600 text-xs px-2 py-1 rounded font-bold uppercase tracking-wide">BETA</span>
+        </header>
+
+        <h2 class="text-xl font-semibold mb-4">Análisis de Pitchers Abridores: Probabilidad 1ra Entrada</h2>
+
+        <!-- Matchup Section -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            
+            <!-- Pitcher Visitante -->
+            <div class="card p-5 rounded-lg text-center shadow-lg">
+                <p class="text-sm text-slate-400 mb-1">Visitante</p>
+                <h3 class="text-xl font-bold mb-3">T. Skubal</h3>
+                <div class="grid grid-cols-2 gap-2 text-sm text-left bg-slate-800 p-3 rounded">
+                    <span class="text-slate-400">ERA 1ra Ent:</span> <span class="font-bold text-green-400">0.85</span>
+                    <span class="text-slate-400">WHIP:</span> <span class="font-bold">0.92</span>
+                </div>
+            </div>
+
+            <!-- VS & Predict Button -->
+            <div class="flex flex-col justify-center items-center p-4">
+                <span class="text-2xl font-bold text-slate-500 mb-4">VS</span>
+                <button id="predictBtn" onclick="runPrediction()" class="w-full bg-blue-500 hover:bg-blue-400 text-white font-bold py-3 px-4 rounded shadow-[0_0_15px_rgba(59,130,246,0.5)] transition-all">
+                    Generar Predicción IA
+                </button>
+            </div>
+
+            <!-- Pitcher Local -->
+            <div class="card p-5 rounded-lg text-center shadow-lg">
+                <p class="text-sm text-slate-400 mb-1">Local</p>
+                <h3 class="text-xl font-bold mb-3">G. Cole</h3>
+                <div class="grid grid-cols-2 gap-2 text-sm text-left bg-slate-800 p-3 rounded">
+                    <span class="text-slate-400">ERA 1ra Ent:</span> <span class="font-bold text-yellow-400">3.10</span>
+                    <span class="text-slate-400">WHIP:</span> <span class="font-bold">1.05</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Output Section (Hidden by default) -->
+        <div id="aiResult" class="card p-6 rounded-lg border-l-4 border-blue-500 hidden opacity-0 transition-opacity duration-500">
+            <h4 class="text-lg font-bold text-blue-400 mb-2 flex items-center">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                AI Insight Generado
+            </h4>
+            <div class="flex justify-between items-center bg-slate-800 p-4 rounded-lg mt-4">
+                <div>
+                    <p class="text-slate-300">Recomendación del Modelo:</p>
+                    <p class="text-2xl font-bold text-white mt-1">NRFI (No Run First Inning)</p>
+                </div>
+                <div class="text-right">
+                    <p class="text-sm text-slate-400">Confianza Estadística</p>
+                    <p class="text-3xl font-black text-green-400">78.4%</p>
+                </div>
+            </div>
+            <p class="text-sm text-slate-400 mt-4 italic">El modelo detecta una alta eficiencia de Skubal contra el top 3 del line-up rival, combinado con un parque de pitcheo amigable.</p>
+        </div>
+
+    </div>
+
+    <script>
+        async function runPrediction() {
+            const btn = document.getElementById('predictBtn');
+            const resultBox = document.getElementById('aiResult');
+            
+            // UI: Estado de carga
+            btn.innerHTML = "Consultando Modelo IA...";
+            btn.classList.add('opacity-75', 'cursor-not-allowed');
+            
+            // 1. Preparar los datos exactos que enviaremos al backend
+            const datosPartido = {
+                pitcher_visitante: "T. Skubal",
+                era_visitante: 0.85,
+                pitcher_local: "G. Cole",
+                era_local: 3.10
+            };
+
+            try {
+                // 2. Hacer la llamada al servidor Python
+                const respuesta = await fetch("http://127.0.0.1:8000/predict_first_inning", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(datosPartido)
+                });
+
+                const prediccionReal = await respuesta.json();
+
+                // 3. Inyectar los datos reales recibidos en la interfaz
+                document.querySelector('#aiResult p.text-2xl').innerText = prediccionReal.recomendacion;
+                document.querySelector('#aiResult p.text-3xl').innerText = prediccionReal.confianza + "%";
+                document.querySelector('#aiResult p.italic').innerText = prediccionReal.insight_texto;
+
+                // UI: Mostrar los resultados
+                btn.innerHTML = "Actualizar Predicción";
+                btn.classList.remove('opacity-75', 'cursor-not-allowed');
+                resultBox.classList.remove('hidden');
+                setTimeout(() => resultBox.classList.remove('opacity-0'), 50);
+
+            } catch (error) {
+                console.error("Error conectando al servidor:", error);
+                btn.innerHTML = "Error de Conexión";
+                alert("Asegúrate de que el servidor FastAPI esté corriendo.");
+            }
+        }
+    </script>
+</body>
+</html>
