@@ -143,15 +143,14 @@ def limpiar_parlay():
     st.rerun()
 
 # --- 4. INTERFAZ PRINCIPAL ---
-st.title("⚾ AI Sports Analyst — Dashboard Quirúrgico")
+st.title("⚾ AI Felix Picks Analyst — Dashboard Quirúrgico")
 
-# Pestañas principales de navegación en la app
 tab_analizador, tab_ia_picks = st.tabs(["🏟️ Analizador por Partido", "🤖 AI Smart Picks (Escáner)"])
 
 juegos_hoy = obtener_juegos_hoy()
 
 # ==========================================
-# PESTAÑA 1: ANALIZADOR INDIVIDUAL (ESTILO SOFASCORE)
+# PESTAÑA 1: ANALIZADOR INDIVIDUAL
 # ==========================================
 with tab_analizador:
     col_lista, col_detalle = st.columns([3, 7])
@@ -274,11 +273,11 @@ with tab_analizador:
                                 agregar_al_parlay(datos_juego['texto'], "Totales", "Under 8.5", "-110")
 
 # ==========================================
-# PESTAÑA 2: AI SMART PICKS (ESCANÉO AUTOMÁTICO)
+# PESTAÑA 2: AI SMART PICKS (CON % DE PROBABILIDAD)
 # ==========================================
 with tab_ia_picks:
     st.markdown("### 🤖 Centro de Inteligencia Artificial — Picks del Día")
-    st.markdown("La IA escanea toda la cartelera de la MLB procesando las métricas FIP, K/9 y BB/9 de los abridores para entregarte las selecciones de mayor valor.")
+    st.markdown("La IA escanea toda la cartelera procesando las métricas FIP, K/9 y BB/9, calculando un **porcentaje de probabilidad de acierto** basado en la ventaja sabermétrica.")
     
     if st.button("⚡ Escanear Toda la Jornada con IA", type="primary"):
         if not juegos_hoy:
@@ -286,7 +285,7 @@ with tab_ia_picks:
         else:
             picks_ia_encontrados = []
             
-            with st.spinner("Analizando la sabermetría de todos los encuentros en la nube..."):
+            with st.spinner("Analizando la sabermetría de todos los encuentros y calculando probabilidades..."):
                 for juego in juegos_hoy:
                     id_v = juego["v_id"]
                     id_l = juego["l_id"]
@@ -298,57 +297,63 @@ with tab_ia_picks:
                         stats_l, _ = obtener_estadisticas_avanzadas(nombre_l)
                         
                         if stats_v and stats_l:
-                            # Lógica de ML
+                            # 1. Lógica de Moneyline con Probabilidad Dinámica
                             poder_v = stats_v['k9'] - (stats_v['fip'] + (stats_v['bb9']*1.5))
                             poder_l = stats_l['k9'] - (stats_l['fip'] + (stats_l['bb9']*1.5))
                             
-                            if poder_v > poder_l + 1.2:
+                            diff = poder_v - poder_l
+                            if abs(diff) > 1.0:
+                                fav_team = juego['away'] if diff > 0 else juego['home']
+                                fav_cuota = "-115" if diff > 0 else "-120"
+                                # Fórmula de probabilidad basada en la diferencia de poder sabermétrico
+                                prob = min(round(53 + abs(diff) * 6.5, 1), 85.0)
+                                
                                 picks_ia_encontrados.append({
                                     "partido": juego["texto"],
                                     "mercado": "Moneyline",
-                                    "seleccion": f"Gana {juego['away']}",
-                                    "cuota": "-115",
-                                    "razon": f"FIP superior ({stats_v['fip']} vs {stats_l['fip']}) y mejor control de ponches."
-                                })
-                            elif poder_l > poder_v + 1.2:
-                                picks_ia_encontrados.append({
-                                    "partido": juego["texto"],
-                                    "mercado": "Moneyline",
-                                    "seleccion": f"Gana {juego['home']}",
-                                    "cuota": "-120",
-                                    "razon": f"Ventaja clara de localía y FIP de {stats_l['fip']}."
+                                    "seleccion": f"Gana {fav_team}",
+                                    "cuota": fav_cuota,
+                                    "probabilidad": prob,
+                                    "razon": f"Diferencia notable de FIP ({stats_v['fip']} vs {stats_l['fip']}) y capacidad de ponches."
                                 })
                                 
-                            # Lógica NRFI
+                            # 2. Lógica NRFI / YRFI con Probabilidad Dinámica
                             riesgo = stats_v['fip'] + stats_l['fip'] + (stats_v['bb9']*1.2) + (stats_l['bb9']*1.2)
-                            if riesgo < 10.0:
+                            if riesgo < 10.5:
+                                prob_nrfi = min(round(55 + (10.5 - riesgo) * 6, 1), 82.0)
                                 picks_ia_encontrados.append({
                                     "partido": juego["texto"],
                                     "mercado": "1ra Entrada",
                                     "seleccion": "NRFI",
                                     "cuota": "-130",
-                                    "razon": f"Bajo riesgo combinado en 1ra entrada (FIPs óptimos y bajo BB/9)."
+                                    "probabilidad": prob_nrfi,
+                                    "razon": f"Bajo riesgo combinado de pasaportes y daño (FIPs óptimos)."
                                 })
             
+            # Ordenar los picks de mayor a menor probabilidad de acierto
+            picks_ia_encontrados.sort(key=lambda x: x["probabilidad"], reverse=True)
             st.session_state.picks_ia = picks_ia_encontrados
 
-    # Mostrar resultados del escaneo si existen
+    # Mostrar resultados del escaneo
     if 'picks_ia' in st.session_state and st.session_state.picks_ia:
-        st.success(f"¡Se encontraron **{len(st.session_state.picks_ia)} selecciones de alto valor** con base en sabermetría!")
+        st.success(f"¡Se encontraron **{len(st.session_state.picks_ia)} selecciones de valor** ordenadas por probabilidad!")
         
         for idx, pick in enumerate(st.session_state.picks_ia):
             with st.container(border=True):
-                col_p1, col_p2 = st.columns([3, 1])
+                col_p1, col_p2, col_p3 = st.columns([3, 1.5, 1])
                 with col_p1:
                     st.markdown(f"⚾ **{pick['partido']}**")
                     st.markdown(f"🎯 **{pick['mercado']}:** `{pick['seleccion']}` (`{pick['cuota']}`)")
-                    st.caption(f"💡 *Análisis IA:* {pick['razon']}")
+                    st.caption(f"💡 *IA:* {pick['razon']}")
                 with col_p2:
+                    # Visualizador de porcentaje estilo barra o métrica destacada
+                    st.metric(label="Probabilidad IA", value=f"{pick['probabilidad']}%")
+                with col_p3:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("Añadir al Boleto", key=f"ai_btn_{idx}", use_container_width=True):
+                    if st.button("Añadir", key=f"ai_btn_{idx}", use_container_width=True):
                         agregar_al_parlay(pick['partido'], pick['mercado'], pick['seleccion'], pick['cuota'])
     elif 'picks_ia' in st.session_state:
-        st.info("El escaneo finalizó, pero no se encontraron diferencias drásticas en los abridores confirmados de hoy para otorgar un 'Lock'. Intenta más tarde cuando haya más abridores confirmados.")
+        st.info("El escaneo finalizó, pero no se encontraron diferencias drásticas en los abridores de hoy para otorgar un porcentaje de confianza alto.")
 
 # --- 5. BARRA LATERAL: BOLETO DE PARLAY ---
 with st.sidebar:
