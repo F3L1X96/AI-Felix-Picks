@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 
 st.set_page_config(page_title="AI Felix Picks Analyst", page_icon="⚾", layout="wide")
@@ -16,6 +16,9 @@ HEADERS = {
     "X-RapidAPI-Host": "tank01-mlb-live-in-game-real-time-statistics.p.rapidapi.com"
 }
 
+# Configuración de Zona Horaria (UTC-6 para sincronizar correctamente)
+tz_centro = timezone(timedelta(hours=-6))
+
 # --- 2. MOTORES DE EXTRACCIÓN Y SABERMETRÍA ---
 
 @st.cache_data(ttl=3600)
@@ -24,7 +27,8 @@ def obtener_juegos_hoy():
         return []
         
     try:
-        hoy = datetime.now().strftime('%Y%m%d')
+        # Aseguramos pedir la fecha basada en la zona horaria correcta
+        hoy = datetime.now(tz_centro).strftime('%Y%m%d')
         url = "https://tank01-mlb-live-in-game-real-time-statistics.p.rapidapi.com/getMLBGamesForDate"
         
         response = requests.get(url, headers=HEADERS, params={"gameDate": hoy}, timeout=10)
@@ -40,8 +44,13 @@ def obtener_juegos_hoy():
             game_id = game_data.get("gameID", "N/A")
             away_team = game_data.get("away", "VIS")
             home_team = game_data.get("home", "LOC")
-            game_time = game_data.get("gameTime", "HOY")
             epoch_time = float(game_data.get("gameTime_epoch", 0))
+            
+            # Conversión de Epoch a Hora Local en formato 24h (ej. 16:40)
+            if epoch_time > 0:
+                game_time = datetime.fromtimestamp(epoch_time, tz=tz_centro).strftime('%H:%M')
+            else:
+                game_time = game_data.get("gameTime", "HOY")
             
             pitchers = game_data.get("probableStartingPitchers", {})
             away_id = pitchers.get("away", "")
@@ -108,16 +117,13 @@ def obtener_estadisticas_avanzadas(nombre):
         hr = float(s.get("HR", "0") or 0)
         bb = float(s.get("BB", "0") or 0)
         
-        # Matemáticas de temporada completa
         k9 = round((so / ip) * 9, 2) if ip > 0 else 0.0
         bb9 = round((bb / ip) * 9, 2) if ip > 0 else 0.0
         fip = round(((13 * hr + 3 * bb - 2 * so) / ip) + 3.10, 2) if ip > 0 else 4.50
         
-        # Filtro Quirúrgico de Muestra Pequeña (Evita falsos "Aces" que lanzaron muy poco)
-        confianza_ip = min(ip / 40.0, 1.0) # Alcanza confianza total a los 40 innings
+        confianza_ip = min(ip / 40.0, 1.0)
         fip_ajustado = fip * confianza_ip + 4.50 * (1 - confianza_ip)
         
-        # Sabermetric Baseline Rating (SBR): Compara vs promedios de liga (K/9: 8.5, BB/9: 3.2, FIP: 4.10)
         sbr_poder = ((k9 - 8.5) * 0.15) + ((3.2 - bb9) * 0.15) + ((4.10 - fip_ajustado) * 0.70)
         
         return {
@@ -128,7 +134,7 @@ def obtener_estadisticas_avanzadas(nombre):
             "bb9": bb9,
             "fip": fip_ajustado, 
             "ip": ip,
-            "sbr": sbr_poder # Calificación de poder absoluto
+            "sbr": sbr_poder
         }, None
         
     except Exception as e:
@@ -247,7 +253,7 @@ with tab_analizador:
 
                     with st.container(border=True):
                         st.markdown("**🎯 Ponches (K's)**")
-                        proj_v = round((v['k9'] / 9) * 5.5, 1) # Proyección conservadora 5.5 innings
+                        proj_v = round((v['k9'] / 9) * 5.5, 1)
                         proj_l = round((l['k9'] / 9) * 5.5, 1)
                         
                         if st.button(f"{v['nombre'].split()[-1]} Over {int(proj_v)-0.5} (-115)", key="kv", use_container_width=True): 
@@ -268,7 +274,7 @@ with tab_analizador:
 
                     with st.container(border=True):
                         st.markdown("**📈 Carreras Totales**")
-                        total_quirurgico = (v['fip'] + l['fip']) * 1.15 # 15% ajuste por desgaste de bullpen
+                        total_quirurgico = (v['fip'] + l['fip']) * 1.15
                         st.caption(f"Proyectadas: {total_quirurgico:.1f}")
                         
                         if total_quirurgico > 9.0:
@@ -291,7 +297,6 @@ with tab_ia_picks:
         else:
             picks_ia_encontrados = []
             
-            # Barra de progreso visual
             barra_progreso = st.progress(0)
             status_texto = st.empty()
             
@@ -310,10 +315,9 @@ with tab_ia_picks:
                     stats_l, _ = obtener_estadisticas_avanzadas(nombre_l)
                     
                     if stats_v and stats_l:
-                        # 1. Analizar Moneyline (Usando el nuevo SBR rating)
                         diff = stats_v['sbr'] - stats_l['sbr']
                         
-                        if abs(diff) > 0.8: # Ventaja muy clara
+                        if abs(diff) > 0.8:
                             fav_team = juego['away'] if diff > 0 else juego['home']
                             fav_cuota = "-115" if diff > 0 else "-120"
                             prob = min(round(60 + abs(diff) * 15, 1), 88.0)
@@ -326,7 +330,6 @@ with tab_ia_picks:
                                 "razon": f"Superioridad masiva en Rating Sabermétrico (SBR: {max(stats_v['sbr'], stats_l['sbr']):.2f})."
                             })
 
-                        # 2. Analizar Ponches (Exige mínimo 30 Innings lanzados para confiar en la tendencia)
                         if stats_v['ip'] > 30 and stats_v['k9'] >= 9.5:
                             proj_v = round((stats_v['k9'] / 9) * 5.5, 1)
                             line_v = int(proj_v) - 0.5
@@ -353,7 +356,6 @@ with tab_ia_picks:
                                 "razon": f"Dominio élite de ponches sostenido en la temporada (K/9: {stats_l['k9']})."
                             })
 
-                        # 3. Analizar Totales con ajuste FIP
                         total_quirurgico = (stats_v['fip'] + stats_l['fip']) * 1.15
                         if total_quirurgico > 9.5:
                             prob_tot = min(round(58 + (total_quirurgico - 9.5) * 5, 1), 82.0)
@@ -376,7 +378,6 @@ with tab_ia_picks:
                                 "razon": f"Duelo de abridores herméticos y probados en la campaña actual."
                             })
 
-                        # 4. Analizar NRFI (Ultra conservador: exige FIPs sub-3.50 y mucho IP)
                         riesgo = stats_v['fip'] + stats_l['fip'] + (stats_v['bb9']*1.2) + (stats_l['bb9']*1.2)
                         if riesgo < 8.5 and stats_v['ip'] > 30 and stats_l['ip'] > 30:
                             prob_nrfi = min(round(65 + (8.5 - riesgo) * 5, 1), 87.0)
@@ -389,7 +390,6 @@ with tab_ia_picks:
                                 "razon": "Control de bases de primer nivel. Riesgo mínimo de tráfico temprano."
                             })
                 
-                # Actualizar barra
                 barra_progreso.progress((i + 1) / total_juegos)
             
             status_texto.text("¡Escaneo global completado!")
@@ -397,11 +397,9 @@ with tab_ia_picks:
             status_texto.empty()
             barra_progreso.empty()
             
-            # Ordenamiento seguro por probabilidad
             picks_ia_encontrados.sort(key=lambda x: x.get("probabilidad", 50.0), reverse=True)
             st.session_state.picks_ia = picks_ia_encontrados
 
-    # Mostrar resultados
     if 'picks_ia' in st.session_state and st.session_state.picks_ia:
         st.success(f"¡Se filtraron **{len(st.session_state.picks_ia)} selecciones sólidas** de toda la jornada!")
         
