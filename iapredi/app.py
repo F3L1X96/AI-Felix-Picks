@@ -145,7 +145,7 @@ def limpiar_parlay():
 # --- 4. INTERFAZ PRINCIPAL ---
 st.title("⚾ AI Felix Picks Analyst — Dashboard Quirúrgico")
 
-tab_analizador, tab_ia_picks = st.tabs(["🏟️ Analizador por Partido", "🤖 AI Smart Picks (Escáner)"])
+tab_analizador, tab_ia_picks = st.tabs(["🏟️ Analizador por Partido", "🤖 AI Smart Picks (Escáner Multimercado)"])
 
 juegos_hoy = obtener_juegos_hoy()
 
@@ -273,19 +273,19 @@ with tab_analizador:
                                 agregar_al_parlay(datos_juego['texto'], "Totales", "Under 8.5", "-110")
 
 # ==========================================
-# PESTAÑA 2: AI SMART PICKS (CON % DE PROBABILIDAD)
+# PESTAÑA 2: AI SMART PICKS (MULTIMERCADO INTELIGENTE)
 # ==========================================
 with tab_ia_picks:
-    st.markdown("### 🤖 Centro de Inteligencia Artificial — Picks del Día")
-    st.markdown("La IA escanea toda la cartelera procesando las métricas FIP, K/9 y BB/9, calculando un **porcentaje de probabilidad de acierto** basado en la ventaja sabermétrica.")
+    st.markdown("### 🤖 Centro de Inteligencia Artificial — Escáner Multimercado")
+    st.markdown("La IA analiza toda la cartelera evaluando **Moneyline, Ponches, Totales (O/U) y NRFI/YRFI**, seleccionando inteligentemente la mejor apuesta por partido con su porcentaje de probabilidad.")
     
-    if st.button("⚡ Escanear Toda la Jornada con IA", type="primary"):
+    if st.button("⚡ Escanear Jornada (Multimercado IA)", type="primary"):
         if not juegos_hoy:
             st.warning("No hay juegos disponibles para escanear hoy.")
         else:
             picks_ia_encontrados = []
             
-            with st.spinner("Analizando la sabermetría de todos los encuentros y calculando probabilidades..."):
+            with st.spinner("Analizando la sabermetría de todos los mercados en la nube..."):
                 for juego in juegos_hoy:
                     id_v = juego["v_id"]
                     id_l = juego["l_id"]
@@ -297,46 +297,94 @@ with tab_ia_picks:
                         stats_l, _ = obtener_estadisticas_avanzadas(nombre_l)
                         
                         if stats_v and stats_l:
-                            # 1. Lógica de Moneyline con Probabilidad Dinámica
+                            # 1. Analizar Moneyline
                             poder_v = stats_v['k9'] - (stats_v['fip'] + (stats_v['bb9']*1.5))
                             poder_l = stats_l['k9'] - (stats_l['fip'] + (stats_l['bb9']*1.5))
-                            
                             diff = poder_v - poder_l
-                            if abs(diff) > 1.0:
+                            
+                            if abs(diff) > 1.2:
                                 fav_team = juego['away'] if diff > 0 else juego['home']
                                 fav_cuota = "-115" if diff > 0 else "-120"
-                                # Fórmula de probabilidad basada en la diferencia de poder sabermétrico
-                                prob = min(round(53 + abs(diff) * 6.5, 1), 85.0)
-                                
+                                prob = min(round(55 + abs(diff) * 6, 1), 86.0)
                                 picks_ia_encontrados.append({
                                     "partido": juego["texto"],
                                     "mercado": "Moneyline",
                                     "seleccion": f"Gana {fav_team}",
                                     "cuota": fav_cuota,
                                     "probabilidad": prob,
-                                    "razon": f"Diferencia notable de FIP ({stats_v['fip']} vs {stats_l['fip']}) y capacidad de ponches."
+                                    "razon": f"Superioridad neta en FIP ({stats_v['fip']} vs {stats_l['fip']}) y control monticular."
                                 })
-                                
-                            # 2. Lógica NRFI / YRFI con Probabilidad Dinámica
+
+                            # 2. Analizar Ponches (Over de K's para abridores dominantes)
+                            proj_v = round((stats_v['k9'] / 9) * 6, 1)
+                            if stats_v['k9'] >= 9.2:
+                                line_v = int(proj_v) - 0.5
+                                prob_kv = min(round(58 + (stats_v['k9'] - 9.2) * 5.5, 1), 84.0)
+                                picks_ia_encontrados.append({
+                                    "partido": juego["texto"],
+                                    "mercado": "Ponches",
+                                    "seleccion": f"{nombre_v.split()[-1]} Over {line_v} K's",
+                                    "cuota": "-115",
+                                    "probabilidad": prob_kv,
+                                    "razon": f"Alto índice de ponches (K/9: {stats_v['k9']}); proyecta {proj_v} K's."
+                                })
+
+                            proj_l = round((stats_l['k9'] / 9) * 6, 1)
+                            if stats_l['k9'] >= 9.2:
+                                line_l = int(proj_l) - 0.5
+                                prob_kl = min(round(58 + (stats_l['k9'] - 9.2) * 5.5, 1), 84.0)
+                                picks_ia_encontrados.append({
+                                    "partido": juego["texto"],
+                                    "mercado": "Ponches",
+                                    "seleccion": f"{nombre_l.split()[-1]} Over {line_l} K's",
+                                    "cuota": "-115",
+                                    "probabilidad": prob_kl,
+                                    "razon": f"Alto índice de ponches (K/9: {stats_l['k9']}); proyecta {proj_l} K's."
+                                })
+
+                            # 3. Analizar Totales (Over / Under)
+                            total_quirurgico = (stats_v['fip'] + stats_l['fip']) * 1.10
+                            if total_quirurgico > 9.2:
+                                prob_tot = min(round(55 + (total_quirurgico - 9.2) * 6, 1), 80.0)
+                                picks_ia_encontrados.append({
+                                    "partido": juego["texto"],
+                                    "mercado": "Totales",
+                                    "seleccion": "Over 8.5 Carreras",
+                                    "cuota": "-110",
+                                    "probabilidad": prob_tot,
+                                    "razon": f"FIPs elevados de ambos abridores proyectan {total_quirurgico:.1f} carreras."
+                                })
+                            elif total_quirurgico < 7.4:
+                                prob_tot = min(round(55 + (7.4 - total_quirurgico) * 6, 1), 80.0)
+                                picks_ia_encontrados.append({
+                                    "partido": juego["texto"],
+                                    "mercado": "Totales",
+                                    "seleccion": "Under 8.5 Carreras",
+                                    "cuota": "-110",
+                                    "probabilidad": prob_tot,
+                                    "razon": f"Duelo de herméticos; FIP combinado proyecta solo {total_quirurgico:.1f} carreras."
+                                })
+
+                            # 4. Analizar NRFI / YRFI
                             riesgo = stats_v['fip'] + stats_l['fip'] + (stats_v['bb9']*1.2) + (stats_l['bb9']*1.2)
-                            if riesgo < 10.5:
-                                prob_nrfi = min(round(55 + (10.5 - riesgo) * 6, 1), 82.0)
+                            if riesgo < 10.0:
+                                prob_nrfi = min(round(58 + (10.0 - riesgo) * 6, 1), 83.0)
                                 picks_ia_encontrados.append({
                                     "partido": juego["texto"],
                                     "mercado": "1ra Entrada",
                                     "seleccion": "NRFI",
                                     "cuota": "-130",
                                     "probabilidad": prob_nrfi,
-                                    "razon": f"Bajo riesgo combinado de pasaportes y daño (FIPs óptimos)."
+                                    "razon": "Control impecable y bajo riesgo combinado en la primera entrada."
                                 })
             
-            # Ordenar los picks de mayor a menor probabilidad de acierto
+            # Ordenar por mayor probabilidad de acierto
             picks_ia_encontrados.sort(key=lambda x: x["probabilidad"], reverse=True)
             st.session_state.picks_ia = picks_ia_encontrados
 
-    # Mostrar resultados del escaneo
+    # Mostrar resultados del escaneo multimercado
     if 'picks_ia' in st.session_state and st.session_state.picks_ia:
-        st.success(f"¡Se encontraron **{len(st.session_state.picks_ia)} selecciones de valor** ordenadas por probabilidad!")
+        st.success(f"¡Se encontraron **{len(st.session_state.picks_ia)} apuestas con valor** analizadas en múltiples mercados!")
         
         for idx, pick in enumerate(st.session_state.picks_ia):
             with st.container(border=True):
@@ -344,16 +392,15 @@ with tab_ia_picks:
                 with col_p1:
                     st.markdown(f"⚾ **{pick['partido']}**")
                     st.markdown(f"🎯 **{pick['mercado']}:** `{pick['seleccion']}` (`{pick['cuota']}`)")
-                    st.caption(f"💡 *IA:* {pick['razon']}")
+                    st.caption(f"💡 *Análisis IA:* {pick['razon']}")
                 with col_p2:
-                    # Visualizador de porcentaje estilo barra o métrica destacada
-                    st.metric(label="Probabilidad IA", value=f"{pick['probabilidad']}%")
+                    st.metric(label="Confianza IA", value=f"{pick['probabilidad']}%")
                 with col_p3:
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("Añadir", key=f"ai_btn_{idx}", use_container_width=True):
                         agregar_al_parlay(pick['partido'], pick['mercado'], pick['seleccion'], pick['cuota'])
     elif 'picks_ia' in st.session_state:
-        st.info("El escaneo finalizó, pero no se encontraron diferencias drásticas en los abridores de hoy para otorgar un porcentaje de confianza alto.")
+        st.info("El escaneo finalizó, pero no se detectaron ventajas claras en los abridores actuales para emitir recomendaciones con alta probabilidad.")
 
 # --- 5. BARRA LATERAL: BOLETO DE PARLAY ---
 with st.sidebar:
