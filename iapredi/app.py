@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import time
+import uuid
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 
@@ -141,12 +142,17 @@ def obtener_estadisticas_avanzadas(nombre):
 # --- 3. FUNCIONES DEL BOLETO ---
 def agregar_al_parlay(partido, mercado, seleccion, probabilidad):
     st.session_state.parlay.append({
+        "id": str(uuid.uuid4()), # ID Único para cada selección
         "partido": partido,
         "mercado": mercado,
         "seleccion": seleccion,
         "probabilidad": probabilidad
     })
     st.rerun()
+
+def eliminar_del_parlay(pick_id):
+    # Reconstruye la lista excluyendo el ID que coincide con el botón presionado
+    st.session_state.parlay = [p for p in st.session_state.parlay if p['id'] != pick_id]
 
 def limpiar_parlay():
     st.session_state.parlay = []
@@ -459,10 +465,18 @@ with st.sidebar:
             with st.container(border=True):
                 st.markdown(f"⚾ **{partido}**")
                 for p in picks:
-                    st.markdown(f"• **{p['mercado']}:** {p['seleccion']} (`{p['probabilidad']}%`)")
+                    # Dividimos en dos columnas para poner la cruz de borrar a la derecha
+                    col_t, col_b = st.columns([85, 15])
+                    with col_t:
+                        st.write(f"• **{p['mercado']}:** {p['seleccion']} ({p['probabilidad']}%)")
+                    with col_b:
+                        # Botón individual para eliminar la selección
+                        st.button("❌", key=f"del_{p['id']}", on_click=eliminar_del_parlay, args=(p['id'],), help="Quitar")
         
         st.divider()
-        st.success(f"**Total Selecciones:** {len(st.session_state.parlay)}")
-        
-        if st.button("🗑️ Limpiar Boleto", type="secondary", use_container_width=True):
-            limpiar_parlay()
+        c_btn1, c_btn2 = st.columns([6, 4])
+        with c_btn1:
+            st.success(f"**Total Selecciones:** {len(st.session_state.parlay)}")
+        with c_btn2:
+            if st.button("🗑️ Limpiar", type="secondary", use_container_width=True):
+                limpiar_parlay()
