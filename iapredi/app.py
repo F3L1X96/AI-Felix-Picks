@@ -378,11 +378,11 @@ with tab_ia_picks:
                                     "razon": "Control impecable y bajo riesgo combinado en la primera entrada."
                                 })
             
-            # Ordenar por mayor probabilidad de acierto
-            picks_ia_encontrados.sort(key=lambda x: x["probabilidad"], reverse=True)
+            # Ordenamiento seguro por probabilidad
+            picks_ia_encontrados.sort(key=lambda x: x.get("probabilidad", 50.0), reverse=True)
             st.session_state.picks_ia = picks_ia_encontrados
 
-    # Mostrar resultados del escaneo multimercado
+    # Mostrar resultados del escaneo multimercado de forma segura
     if 'picks_ia' in st.session_state and st.session_state.picks_ia:
         st.success(f"¡Se encontraron **{len(st.session_state.picks_ia)} apuestas con valor** analizadas en múltiples mercados!")
         
@@ -390,15 +390,15 @@ with tab_ia_picks:
             with st.container(border=True):
                 col_p1, col_p2, col_p3 = st.columns([3, 1.5, 1])
                 with col_p1:
-                    st.markdown(f"⚾ **{pick['partido']}**")
-                    st.markdown(f"🎯 **{pick['mercado']}:** `{pick['seleccion']}` (`{pick['cuota']}`)")
-                    st.caption(f"💡 *Análisis IA:* {pick['razon']}")
+                    st.markdown(f"⚾ **{pick.get('partido', 'Partido')}**")
+                    st.markdown(f"🎯 **{pick.get('mercado', 'Mercado')}:** `{pick.get('seleccion', 'Selección')}` (`{pick.get('cuota', '-110')}`)")
+                    st.caption(f"💡 *Análisis IA:* {pick.get('razon', '')}")
                 with col_p2:
-                    st.metric(label="Confianza IA", value=f"{pick['probabilidad']}%")
+                    st.metric(label="Confianza IA", value=f"{pick.get('probabilidad', 75.0)}%")
                 with col_p3:
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("Añadir", key=f"ai_btn_{idx}", use_container_width=True):
-                        agregar_al_parlay(pick['partido'], pick['mercado'], pick['seleccion'], pick['cuota'])
+                        agregar_al_parlay(pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('cuota', '-110'))
     elif 'picks_ia' in st.session_state:
         st.info("El escaneo finalizó, pero no se detectaron ventajas claras en los abridores actuales para emitir recomendaciones con alta probabilidad.")
 
