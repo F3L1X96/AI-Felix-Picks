@@ -142,7 +142,7 @@ def obtener_estadisticas_avanzadas(nombre):
 # --- 3. FUNCIONES DEL BOLETO ---
 def agregar_al_parlay(partido, mercado, seleccion, probabilidad):
     st.session_state.parlay.append({
-        "id": str(uuid.uuid4()), # ID Único para cada selección
+        "id": str(uuid.uuid4()),
         "partido": partido,
         "mercado": mercado,
         "seleccion": seleccion,
@@ -151,7 +151,6 @@ def agregar_al_parlay(partido, mercado, seleccion, probabilidad):
     st.rerun()
 
 def eliminar_del_parlay(pick_id):
-    # Reconstruye la lista excluyendo el ID que coincide con el botón presionado
     st.session_state.parlay = [p for p in st.session_state.parlay if p['id'] != pick_id]
 
 def limpiar_parlay():
@@ -440,20 +439,17 @@ with st.sidebar:
             
         prob_porcentaje = prob_combinada_decimal * 100
         
-        # Traducción a Momio Justo (Fair Odds) basado en la probabilidad real
+        # Traducción a Multiplicador Decimal Justo (Fair Multiplier)
         dec_odds = 1 / prob_combinada_decimal if prob_combinada_decimal > 0 else 1.0
-        if dec_odds >= 2.0:
-            momio_justo = f"+{int((dec_odds - 1) * 100)}"
-        else:
-            momio_justo = f"{int(-100 / (dec_odds - 1))}" if dec_odds > 1.0 else "N/A"
+        multiplicador_justo = f"{dec_odds:.2f}x"
             
         c_p, c_m = st.columns(2)
         with c_p:
             st.markdown(f"**Probabilidad**\n\n`{prob_porcentaje:.1f}%`")
         with c_m:
-            st.markdown(f"**Momio Justo**\n\n`{momio_justo}`")
+            st.markdown(f"**Momio Justo**\n\n`{multiplicador_justo}`")
             
-        st.caption("💡 *Si Draftea te paga más que este 'Momio Justo', tienes una apuesta con valor positivo (+EV).*")
+        st.caption("💡 *Si Draftea te ofrece un multiplicador mayor a este, tienes una apuesta con valor positivo (+EV).*")
         
         st.divider()
         
@@ -465,18 +461,17 @@ with st.sidebar:
             with st.container(border=True):
                 st.markdown(f"⚾ **{partido}**")
                 for p in picks:
-                    # Dividimos en dos columnas para poner la cruz de borrar a la derecha
-                    col_t, col_b = st.columns([85, 15])
+                    # Ajustamos drásticamente el espacio (75% texto, 25% botón) y usamos una "X" simple
+                    col_t, col_b = st.columns([75, 25])
                     with col_t:
-                        st.write(f"• **{p['mercado']}:** {p['seleccion']} ({p['probabilidad']}%)")
+                        st.markdown(f"• **{p['mercado']}:**\n{p['seleccion']} ({p['probabilidad']}%)")
                     with col_b:
-                        # Botón individual para eliminar la selección
-                        st.button("❌", key=f"del_{p['id']}", on_click=eliminar_del_parlay, args=(p['id'],), help="Quitar")
+                        st.button("X", key=f"del_{p['id']}", on_click=eliminar_del_parlay, args=(p['id'],), use_container_width=True)
         
         st.divider()
         c_btn1, c_btn2 = st.columns([6, 4])
         with c_btn1:
-            st.success(f"**Total Selecciones:** {len(st.session_state.parlay)}")
+            st.success(f"**Total Picks:** {len(st.session_state.parlay)}")
         with c_btn2:
             if st.button("🗑️ Limpiar", type="secondary", use_container_width=True):
                 limpiar_parlay()
