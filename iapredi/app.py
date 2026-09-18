@@ -27,7 +27,6 @@ def obtener_juegos_hoy():
         return []
         
     try:
-        # Aseguramos pedir la fecha basada en la zona horaria correcta
         hoy = datetime.now(tz_centro).strftime('%Y%m%d')
         url = "https://tank01-mlb-live-in-game-real-time-statistics.p.rapidapi.com/getMLBGamesForDate"
         
@@ -46,7 +45,6 @@ def obtener_juegos_hoy():
             home_team = game_data.get("home", "LOC")
             epoch_time = float(game_data.get("gameTime_epoch", 0))
             
-            # Conversión de Epoch a Hora Local en formato 24h (ej. 16:40)
             if epoch_time > 0:
                 game_time = datetime.fromtimestamp(epoch_time, tz=tz_centro).strftime('%H:%M')
             else:
@@ -141,12 +139,12 @@ def obtener_estadisticas_avanzadas(nombre):
         return None, f"❌ Error extrayendo datos: {str(e)}"
 
 # --- 3. FUNCIONES DEL BOLETO ---
-def agregar_al_parlay(partido, mercado, seleccion, cuota):
+def agregar_al_parlay(partido, mercado, seleccion, probabilidad):
     st.session_state.parlay.append({
         "partido": partido,
         "mercado": mercado,
         "seleccion": seleccion,
-        "cuota": cuota
+        "probabilidad": probabilidad
     })
     st.rerun()
 
@@ -212,7 +210,7 @@ with tab_analizador:
                     generar = st.button("🚀 Analizar", type="primary", use_container_width=True)
 
                 if generar:
-                    with st.spinner("Calculando rating sabermétrico (SBR)..."):
+                    with st.spinner("Calculando rating sabermétrico y probabilidades..."):
                         datos_v, err_v = obtener_estadisticas_avanzadas(busqueda_v)
                         datos_l, err_l = obtener_estadisticas_avanzadas(busqueda_l)
                         
@@ -243,34 +241,42 @@ with tab_analizador:
                         diff_poder = v['sbr'] - l['sbr']
                         
                         if diff_poder > 0.5:
-                            if st.button(f"Gana {away_team} (-115)", key="ml_v", use_container_width=True): 
-                                agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {away_team}", "-115")
+                            prob_v = min(round(50 + diff_poder * 12, 1), 88.0)
+                            if st.button(f"Gana {away_team} ({prob_v}%)", key="ml_v", use_container_width=True): 
+                                agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {away_team}", prob_v)
                         elif diff_poder < -0.5:
-                            if st.button(f"Gana {home_team} (-120)", key="ml_l", use_container_width=True): 
-                                agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {home_team}", "-120")
+                            prob_l = min(round(50 + abs(diff_poder) * 12, 1), 88.0)
+                            if st.button(f"Gana {home_team} ({prob_l}%)", key="ml_l", use_container_width=True): 
+                                agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {home_team}", prob_l)
                         else:
-                            st.caption("⚠️ Empate técnico (Evitar ML)")
+                            st.caption("⚠️ Empate técnico (50% / 50%)")
 
                     with st.container(border=True):
                         st.markdown("**🎯 Ponches (K's)**")
                         proj_v = round((v['k9'] / 9) * 5.5, 1)
                         proj_l = round((l['k9'] / 9) * 5.5, 1)
                         
-                        if st.button(f"{v['nombre'].split()[-1]} Over {int(proj_v)-0.5} (-115)", key="kv", use_container_width=True): 
-                            agregar_al_parlay(datos_juego['texto'], "Ponches", f"{v['nombre']} Over {int(proj_v)-0.5}", "-115")
-                        if st.button(f"{l['nombre'].split()[-1]} Over {int(proj_l)-0.5} (-115)", key="kl", use_container_width=True): 
-                            agregar_al_parlay(datos_juego['texto'], "Ponches", f"{l['nombre']} Over {int(proj_l)-0.5}", "-115")
+                        prob_kv = min(round(50 + max(0, v['k9'] - 8.5) * 5, 1), 85.0)
+                        prob_kl = min(round(50 + max(0, l['k9'] - 8.5) * 5, 1), 85.0)
+                        
+                        if st.button(f"{v['nombre'].split()[-1]} Over {int(proj_v)-0.5} K's ({prob_kv}%)", key="kv", use_container_width=True): 
+                            agregar_al_parlay(datos_juego['texto'], "Ponches", f"{v['nombre']} Over {int(proj_v)-0.5}", prob_kv)
+                        if st.button(f"{l['nombre'].split()[-1]} Over {int(proj_l)-0.5} K's ({prob_kl}%)", key="kl", use_container_width=True): 
+                            agregar_al_parlay(datos_juego['texto'], "Ponches", f"{l['nombre']} Over {int(proj_l)-0.5}", prob_kl)
 
                 with col_m2:
                     with st.container(border=True):
                         st.markdown("**🔥 1ra Entrada**")
                         riesgo_quirurgico = v['fip'] + l['fip'] + (v['bb9']*1.2) + (l['bb9']*1.2)
-                        if riesgo_quirurgico < 9.5 and v['ip'] > 20 and l['ip'] > 20:
-                            if st.button("Añadir NRFI (-130)", key="nrfi", use_container_width=True): 
-                                agregar_al_parlay(datos_juego['texto'], "1ra Entrada", "NRFI", "-130")
+                        
+                        if riesgo_quirurgico < 9.5:
+                            prob_nrfi = min(round(50 + (9.5 - riesgo_quirurgico) * 6, 1), 87.0)
+                            if st.button(f"Añadir NRFI ({prob_nrfi}%)", key="nrfi", use_container_width=True): 
+                                agregar_al_parlay(datos_juego['texto'], "1ra Entrada", "NRFI", prob_nrfi)
                         else:
-                            if st.button("Añadir YRFI (-110)", key="yrfi", use_container_width=True): 
-                                agregar_al_parlay(datos_juego['texto'], "1ra Entrada", "YRFI", "-110")
+                            prob_yrfi = min(round(50 + (riesgo_quirurgico - 9.5) * 6, 1), 87.0)
+                            if st.button(f"Añadir YRFI ({prob_yrfi}%)", key="yrfi", use_container_width=True): 
+                                agregar_al_parlay(datos_juego['texto'], "1ra Entrada", "YRFI", prob_yrfi)
 
                     with st.container(border=True):
                         st.markdown("**📈 Carreras Totales**")
@@ -278,18 +284,20 @@ with tab_analizador:
                         st.caption(f"Proyectadas: {total_quirurgico:.1f}")
                         
                         if total_quirurgico > 9.0:
-                            if st.button("Over 8.5 Carreras (-110)", key="over", use_container_width=True): 
-                                agregar_al_parlay(datos_juego['texto'], "Totales", "Over 8.5", "-110")
+                            prob_over = min(round(50 + (total_quirurgico - 9.0) * 6, 1), 82.0)
+                            if st.button(f"Over 8.5 Carreras ({prob_over}%)", key="over", use_container_width=True): 
+                                agregar_al_parlay(datos_juego['texto'], "Totales", "Over 8.5", prob_over)
                         else:
-                            if st.button("Under 8.5 Carreras (-110)", key="under", use_container_width=True): 
-                                agregar_al_parlay(datos_juego['texto'], "Totales", "Under 8.5", "-110")
+                            prob_under = min(round(50 + (9.0 - total_quirurgico) * 6, 1), 82.0)
+                            if st.button(f"Under 8.5 Carreras ({prob_under}%)", key="under", use_container_width=True): 
+                                agregar_al_parlay(datos_juego['texto'], "Totales", "Under 8.5", prob_under)
 
 # ==========================================
 # PESTAÑA 2: AI SMART PICKS (ESCÁNER MULTIMERCADO)
 # ==========================================
 with tab_ia_picks:
     st.markdown("### 🤖 Escáner Quirúrgico de la Jornada")
-    st.markdown("La IA evalúa la forma completa de la temporada, aislando pequeñas muestras engañosas y calculando el **Poder Sabermétrico Real (SBR)** para extraer picks de altísima probabilidad.")
+    st.markdown("La IA evalúa la forma completa de la temporada y calcula el **Poder Sabermétrico Real (SBR)** para extraer picks de altísima probabilidad.")
     
     if st.button("⚡ Ejecutar Escáner Global", type="primary"):
         if not juegos_hoy:
@@ -316,16 +324,13 @@ with tab_ia_picks:
                     
                     if stats_v and stats_l:
                         diff = stats_v['sbr'] - stats_l['sbr']
-                        
                         if abs(diff) > 0.8:
                             fav_team = juego['away'] if diff > 0 else juego['home']
-                            fav_cuota = "-115" if diff > 0 else "-120"
-                            prob = min(round(60 + abs(diff) * 15, 1), 88.0)
+                            prob = min(round(60 + abs(diff) * 12, 1), 88.0)
                             picks_ia_encontrados.append({
                                 "partido": juego["texto"],
                                 "mercado": "Moneyline",
                                 "seleccion": f"Gana {fav_team}",
-                                "cuota": fav_cuota,
                                 "probabilidad": prob,
                                 "razon": f"Superioridad masiva en Rating Sabermétrico (SBR: {max(stats_v['sbr'], stats_l['sbr']):.2f})."
                             })
@@ -337,8 +342,7 @@ with tab_ia_picks:
                             picks_ia_encontrados.append({
                                 "partido": juego["texto"],
                                 "mercado": "Ponches",
-                                "seleccion": f"{nombre_v.split()[-1]} Over {line_v} K's",
-                                "cuota": "-115",
+                                "seleccion": f"{nombre_v.split()[-1]} Over {line_v}",
                                 "probabilidad": prob_kv,
                                 "razon": f"Dominio élite de ponches sostenido en la temporada (K/9: {stats_v['k9']})."
                             })
@@ -350,8 +354,7 @@ with tab_ia_picks:
                             picks_ia_encontrados.append({
                                 "partido": juego["texto"],
                                 "mercado": "Ponches",
-                                "seleccion": f"{nombre_l.split()[-1]} Over {line_l} K's",
-                                "cuota": "-115",
+                                "seleccion": f"{nombre_l.split()[-1]} Over {line_l}",
                                 "probabilidad": prob_kl,
                                 "razon": f"Dominio élite de ponches sostenido en la temporada (K/9: {stats_l['k9']})."
                             })
@@ -363,7 +366,6 @@ with tab_ia_picks:
                                 "partido": juego["texto"],
                                 "mercado": "Totales",
                                 "seleccion": "Over 8.5 Carreras",
-                                "cuota": "-110",
                                 "probabilidad": prob_tot,
                                 "razon": f"FIPs ajustados extremadamente altos; nula prevención de carreras."
                             })
@@ -373,7 +375,6 @@ with tab_ia_picks:
                                 "partido": juego["texto"],
                                 "mercado": "Totales",
                                 "seleccion": "Under 8.5 Carreras",
-                                "cuota": "-110",
                                 "probabilidad": prob_tot,
                                 "razon": f"Duelo de abridores herméticos y probados en la campaña actual."
                             })
@@ -385,7 +386,6 @@ with tab_ia_picks:
                                 "partido": juego["texto"],
                                 "mercado": "1ra Entrada",
                                 "seleccion": "NRFI",
-                                "cuota": "-130",
                                 "probabilidad": prob_nrfi,
                                 "razon": "Control de bases de primer nivel. Riesgo mínimo de tráfico temprano."
                             })
@@ -408,40 +408,46 @@ with tab_ia_picks:
                 col_p1, col_p2, col_p3 = st.columns([3, 1.5, 1])
                 with col_p1:
                     st.markdown(f"⚾ **{pick.get('partido', '')}**")
-                    st.markdown(f"🎯 **{pick.get('mercado', '')}:** `{pick.get('seleccion', '')}` (`{pick.get('cuota', '')}`)")
+                    st.markdown(f"🎯 **{pick.get('mercado', '')}:** `{pick.get('seleccion', '')}`")
                     st.caption(f"💡 *IA:* {pick.get('razon', '')}")
                 with col_p2:
                     st.metric(label="Confianza IA", value=f"{pick.get('probabilidad', 75.0)}%")
                 with col_p3:
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("Añadir", key=f"ai_btn_{idx}", use_container_width=True):
-                        agregar_al_parlay(pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('cuota', '-110'))
+                        agregar_al_parlay(pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 75.0))
     elif 'picks_ia' in st.session_state:
-        st.info("Hoy las líneas de Las Vegas están muy ajustadas y no hay oportunidades de altísimo valor que superen los filtros sabermétricos del escáner.")
+        st.info("No hay oportunidades de altísimo valor que superen los filtros sabermétricos del escáner en este momento.")
 
 # --- 5. BARRA LATERAL: BOLETO DE PARLAY ---
 with st.sidebar:
     st.markdown("### 🎫 MI ENTRADA")
     
     if len(st.session_state.parlay) == 0:
-        st.caption("Aún no tienes selecciones en tu boleto.")
+        st.caption("Aún no tienes selecciones en tu boleto. Analiza partidos para agregarlas.")
     else:
-        cuota_decimal_total = 1.0
+        # Cálculo de Probabilidad Combinada Exacta
+        prob_combinada_decimal = 1.0
         for pick in st.session_state.parlay:
-            cuota_num = int(pick['cuota'].replace('+', ''))
-            dec = (cuota_num / 100) + 1 if cuota_num > 0 else (100 / abs(cuota_num)) + 1
-            cuota_decimal_total *= dec
-        
-        momio_final = f"+{int((cuota_decimal_total - 1) * 100)}" if cuota_decimal_total >= 2.0 else f"{int(-100 / (cuota_decimal_total - 1))}"
+            prob = float(pick['probabilidad']) / 100.0
+            prob_combinada_decimal *= prob
             
-        c_in, c_mo, c_ga = st.columns(3)
-        with c_in:
-            apuesta = st.number_input("Entrada ($):", value=20, step=10)
-        with c_mo:
-            st.markdown(f"**Momio**\n\n`{momio_final}`")
-        with c_ga:
-            pago_potencial = apuesta * cuota_decimal_total
-            st.markdown(f"**Ganancia**\n\n`$ {pago_potencial:.2f}`")
+        prob_porcentaje = prob_combinada_decimal * 100
+        
+        # Traducción a Momio Justo (Fair Odds) basado en la probabilidad real
+        dec_odds = 1 / prob_combinada_decimal if prob_combinada_decimal > 0 else 1.0
+        if dec_odds >= 2.0:
+            momio_justo = f"+{int((dec_odds - 1) * 100)}"
+        else:
+            momio_justo = f"{int(-100 / (dec_odds - 1))}" if dec_odds > 1.0 else "N/A"
+            
+        c_p, c_m = st.columns(2)
+        with c_p:
+            st.markdown(f"**Probabilidad**\n\n`{prob_porcentaje:.1f}%`")
+        with c_m:
+            st.markdown(f"**Momio Justo**\n\n`{momio_justo}`")
+            
+        st.caption("💡 *Si Draftea te paga más que este 'Momio Justo', tienes una apuesta con valor positivo (+EV).*")
         
         st.divider()
         
@@ -453,7 +459,7 @@ with st.sidebar:
             with st.container(border=True):
                 st.markdown(f"⚾ **{partido}**")
                 for p in picks:
-                    st.markdown(f"• **{p['mercado']}:** {p['seleccion']} (`{p['cuota']}`)")
+                    st.markdown(f"• **{p['mercado']}:** {p['seleccion']} (`{p['probabilidad']}%`)")
         
         st.divider()
         st.success(f"**Total Selecciones:** {len(st.session_state.parlay)}")
