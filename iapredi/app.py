@@ -245,17 +245,17 @@ with tab_analizador:
                         st.markdown("**🏆 Ganador (ML)**")
                         diff_poder = v['sbr'] - l['sbr']
                         
-                        # Filtro manual endurecido (1.5 de diferencia SBR mínimo)
-                        if diff_poder > 1.5:
+                        # Filtro equilibrado: 0.6 de diferencia SBR
+                        if diff_poder > 0.6:
                             prob_v = min(round(50 + diff_poder * 12, 1), 88.0)
                             if st.button(f"Gana {away_team} ({prob_v}%)", key="ml_v", use_container_width=True): 
                                 agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {away_team}", prob_v)
-                        elif diff_poder < -1.5:
+                        elif diff_poder < -0.6:
                             prob_l = min(round(50 + abs(diff_poder) * 12, 1), 88.0)
                             if st.button(f"Gana {home_team} ({prob_l}%)", key="ml_l", use_container_width=True): 
                                 agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {home_team}", prob_l)
                         else:
-                            st.caption("⚠️ Empate técnico o riesgo ofensivo (Evitar ML)")
+                            st.caption("⚠️ Empate técnico (Evitar ML)")
 
                     with st.container(border=True):
                         st.markdown("**🎯 Ponches (K's)**")
@@ -303,7 +303,7 @@ with tab_analizador:
 # ==========================================
 with tab_ia_picks:
     st.markdown("### 🤖 Escáner Quirúrgico de la Jornada")
-    st.markdown("La IA evalúa la forma completa de la temporada aislando a los abridores. **Filtro endurecido:** Solo se sugieren apuestas a ganar (ML) cuando hay una masacre estadística para mitigar el riesgo de bullpens débiles.")
+    st.markdown("La IA evalúa la forma completa de la temporada aislando a los abridores y extrayendo picks con valor matemático frente a las cuotas de Las Vegas.")
     
     if st.button("⚡ Ejecutar Escáner Global", type="primary"):
         if not juegos_hoy:
@@ -331,8 +331,8 @@ with tab_ia_picks:
                     if stats_v and stats_l:
                         diff = stats_v['sbr'] - stats_l['sbr']
                         
-                        # FILTRO EXTREMO PARA MONEYLINE (Antes 0.8, ahora 1.8)
-                        if abs(diff) > 1.8:
+                        # FILTRO EQUILIBRADO PARA MONEYLINE (0.9 de ventaja SBR)
+                        if abs(diff) > 0.9:
                             fav_team = juego['away'] if diff > 0 else juego['home']
                             prob = min(round(60 + abs(diff) * 12, 1), 88.0)
                             picks_ia_encontrados.append({
@@ -340,10 +340,9 @@ with tab_ia_picks:
                                 "mercado": "Moneyline",
                                 "seleccion": f"Gana {fav_team}",
                                 "probabilidad": prob,
-                                "razon": f"⚠️ Ventaja de pitcheo abrumadora, pero sujeto a ofensiva/relevos (SBR: {max(stats_v['sbr'], stats_l['sbr']):.2f})."
+                                "razon": f"Superioridad clara en Rating Sabermétrico del abridor (SBR: {max(stats_v['sbr'], stats_l['sbr']):.2f})."
                             })
 
-                        # PRIORIDAD A PONCHES (Control 100% del pitcher)
                         if stats_v['ip'] > 30 and stats_v['k9'] >= 9.5:
                             proj_v = round((stats_v['k9'] / 9) * 5.5, 1)
                             line_v = int(proj_v) - 0.5
@@ -353,7 +352,7 @@ with tab_ia_picks:
                                 "mercado": "Ponches",
                                 "seleccion": f"{nombre_v.split()[-1]} Over {line_v}",
                                 "probabilidad": prob_kv,
-                                "razon": f"🎯 Apuesta directa al brazo: Dominio élite sostenido en la temporada (K/9: {stats_v['k9']})."
+                                "razon": f"Dominio élite sostenido en la temporada (K/9: {stats_v['k9']})."
                             })
 
                         if stats_l['ip'] > 30 and stats_l['k9'] >= 9.5:
@@ -365,7 +364,7 @@ with tab_ia_picks:
                                 "mercado": "Ponches",
                                 "seleccion": f"{nombre_l.split()[-1]} Over {line_l}",
                                 "probabilidad": prob_kl,
-                                "razon": f"🎯 Apuesta directa al brazo: Dominio élite sostenido en la temporada (K/9: {stats_l['k9']})."
+                                "razon": f"Dominio élite sostenido en la temporada (K/9: {stats_l['k9']})."
                             })
 
                         total_quirurgico = (stats_v['fip'] + stats_l['fip']) * 1.15
@@ -376,7 +375,7 @@ with tab_ia_picks:
                                 "mercado": "Totales",
                                 "seleccion": "Over 8.5 Carreras",
                                 "probabilidad": prob_tot,
-                                "razon": f"FIPs ajustados extremadamente altos; nula prevención de carreras de ambos abridores."
+                                "razon": f"FIPs ajustados altos; nula prevención de carreras de ambos abridores."
                             })
                         elif total_quirurgico < 7.0 and stats_v['ip'] > 30 and stats_l['ip'] > 30:
                             prob_tot = min(round(58 + (7.0 - total_quirurgico) * 6, 1), 82.0)
