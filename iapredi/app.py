@@ -94,17 +94,14 @@ def obtener_nombre_pitcher(player_id):
     return "TBA"
 
 @st.cache_data(ttl=3600)
-def obtener_estadisticas_avanzadas(identificador, es_id=False):
-    if not identificador or identificador.strip() == "" or identificador == "TBA":
+def obtener_estadisticas_avanzadas(nombre):
+    """Buscamos siempre por Nombre para que la API de Tank01 entregue los datos correctamente."""
+    if not nombre or nombre.strip() == "" or nombre == "TBA":
         return None, "TBA"
         
     try:
         url = "https://tank01-mlb-live-in-game-real-time-statistics.p.rapidapi.com/getMLBPlayerInfo"
-        params = {"getStats": "true"}
-        if es_id:
-            params["playerID"] = identificador
-        else:
-            params["playerName"] = identificador
+        params = {"playerName": nombre, "getStats": "true"}
             
         response = requests.get(url, headers=HEADERS, params=params, timeout=10)
         
@@ -119,7 +116,7 @@ def obtener_estadisticas_avanzadas(identificador, es_id=False):
             return None, f"⚠️ No encontrado."
             
         jugador_data = datos.get("body", [{}])[0]
-        nombre_real = jugador_data.get("longName", identificador)
+        nombre_real = jugador_data.get("longName", nombre)
         stats_root = jugador_data.get("stats", {})
         
         s = stats_root.get("Pitching", stats_root)
@@ -234,8 +231,8 @@ with tab_analizador:
 
                 if generar:
                     with st.spinner("Calculando rating híbrido (Pitcheo + Ofensiva)..."):
-                        datos_v, err_v = obtener_estadisticas_avanzadas(busqueda_v, es_id=False)
-                        datos_l, err_l = obtener_estadisticas_avanzadas(busqueda_l, es_id=False)
+                        datos_v, err_v = obtener_estadisticas_avanzadas(busqueda_v)
+                        datos_l, err_l = obtener_estadisticas_avanzadas(busqueda_l)
                         
                         if err_v == "LIMITE_API" or err_l == "LIMITE_API":
                             st.error("🚨 Límite de la API agotado. Actualiza tu API Key.")
@@ -351,87 +348,96 @@ with tab_ia_picks:
                 id_l = juego.get("l_id", "")
                 
                 if id_v and id_l:
-                    stats_v, err_v = obtener_estadisticas_avanzadas(id_v, es_id=True)
-                    stats_l, err_l = obtener_estadisticas_avanzadas(id_l, es_id=True)
+                    # Regresamos a buscar el NOMBRE del pitcher primero para que no falle la sabermetría
+                    nombre_v = obtener_nombre_pitcher(id_v)
+                    nombre_l = obtener_nombre_pitcher(id_l)
                     
-                    if err_v == "LIMITE_API" or err_l == "LIMITE_API":
+                    if nombre_v == "LIMITE_API" or nombre_l == "LIMITE_API":
                         api_limite_alcanzado = True
                         break
                         
-                    if stats_v and stats_l:
-                        bonus_v = 0.3 if juego['away'] in power_teams else 0.0
-                        bonus_l = 0.3 if juego['home'] in power_teams else 0.0
+                    if nombre_v != "TBA" and nombre_l != "TBA":
+                        stats_v, err_v = obtener_estadisticas_avanzadas(nombre_v)
+                        stats_l, err_l = obtener_estadisticas_avanzadas(nombre_l)
                         
-                        poder_v_total = stats_v['sbr'] + bonus_v
-                        poder_l_total = stats_l['sbr'] + bonus_l
-                        diff = poder_v_total - poder_l_total
-                        
-                        # Filtros Relajados para encontrar valor diario
-                        if abs(diff) > 0.4:
-                            fav_team = juego['away'] if diff > 0 else juego['home']
-                            prob = min(round(55 + abs(diff) * 12, 1), 88.0)
-                            picks_ia_encontrados.append({
-                                "partido": juego["texto"],
-                                "mercado": "Moneyline",
-                                "seleccion": f"Gana {fav_team}",
-                                "probabilidad": prob,
-                                "razon": f"Ventaja híbrida detectada a favor de {fav_team}."
-                            })
+                        if err_v == "LIMITE_API" or err_l == "LIMITE_API":
+                            api_limite_alcanzado = True
+                            break
+                            
+                        if stats_v and stats_l:
+                            bonus_v = 0.3 if juego['away'] in power_teams else 0.0
+                            bonus_l = 0.3 if juego['home'] in power_teams else 0.0
+                            
+                            poder_v_total = stats_v['sbr'] + bonus_v
+                            poder_l_total = stats_l['sbr'] + bonus_l
+                            diff = poder_v_total - poder_l_total
+                            
+                            # Filtros Relajados para encontrar valor diario
+                            if abs(diff) > 0.4:
+                                fav_team = juego['away'] if diff > 0 else juego['home']
+                                prob = min(round(55 + abs(diff) * 12, 1), 88.0)
+                                picks_ia_encontrados.append({
+                                    "partido": juego["texto"],
+                                    "mercado": "Moneyline",
+                                    "seleccion": f"Gana {fav_team}",
+                                    "probabilidad": prob,
+                                    "razon": f"Ventaja híbrida detectada a favor de {fav_team}."
+                                })
 
-                        if stats_v['ip'] > 25 and stats_v['k9'] >= 8.8:
-                            proj_v = round((stats_v['k9'] / 9) * 5.5, 1)
-                            line_v = int(proj_v) - 0.5
-                            prob_kv = min(round(60 + (stats_v['k9'] - 8.8) * 4, 1), 88.0)
-                            picks_ia_encontrados.append({
-                                "partido": juego["texto"],
-                                "mercado": "Ponches",
-                                "seleccion": f"{stats_v['nombre'].split()[-1]} Over {line_v}",
-                                "probabilidad": prob_kv,
-                                "razon": f"Buen índice de ponches proyectado (K/9: {stats_v['k9']})."
-                            })
+                            if stats_v['ip'] > 25 and stats_v['k9'] >= 8.8:
+                                proj_v = round((stats_v['k9'] / 9) * 5.5, 1)
+                                line_v = int(proj_v) - 0.5
+                                prob_kv = min(round(60 + (stats_v['k9'] - 8.8) * 4, 1), 88.0)
+                                picks_ia_encontrados.append({
+                                    "partido": juego["texto"],
+                                    "mercado": "Ponches",
+                                    "seleccion": f"{stats_v['nombre'].split()[-1]} Over {line_v}",
+                                    "probabilidad": prob_kv,
+                                    "razon": f"Buen índice de ponches proyectado (K/9: {stats_v['k9']})."
+                                })
 
-                        if stats_l['ip'] > 25 and stats_l['k9'] >= 8.8:
-                            proj_l = round((stats_l['k9'] / 9) * 5.5, 1)
-                            line_l = int(proj_l) - 0.5
-                            prob_kl = min(round(60 + (stats_l['k9'] - 8.8) * 4, 1), 88.0)
-                            picks_ia_encontrados.append({
-                                "partido": juego["texto"],
-                                "mercado": "Ponches",
-                                "seleccion": f"{stats_l['nombre'].split()[-1]} Over {line_l}",
-                                "probabilidad": prob_kl,
-                                "razon": f"Buen índice de ponches proyectado (K/9: {stats_l['k9']})."
-                            })
+                            if stats_l['ip'] > 25 and stats_l['k9'] >= 8.8:
+                                proj_l = round((stats_l['k9'] / 9) * 5.5, 1)
+                                line_l = int(proj_l) - 0.5
+                                prob_kl = min(round(60 + (stats_l['k9'] - 8.8) * 4, 1), 88.0)
+                                picks_ia_encontrados.append({
+                                    "partido": juego["texto"],
+                                    "mercado": "Ponches",
+                                    "seleccion": f"{stats_l['nombre'].split()[-1]} Over {line_l}",
+                                    "probabilidad": prob_kl,
+                                    "razon": f"Buen índice de ponches proyectado (K/9: {stats_l['k9']})."
+                                })
 
-                        total_quirurgico = (stats_v['fip'] + stats_l['fip']) * 1.15
-                        if total_quirurgico > 9.2:
-                            prob_tot = min(round(55 + (total_quirurgico - 9.2) * 5, 1), 82.0)
-                            picks_ia_encontrados.append({
-                                "partido": juego["texto"],
-                                "mercado": "Totales",
-                                "seleccion": "Over 8.5 Carreras",
-                                "probabilidad": prob_tot,
-                                "razon": f"Altas probabilidades de daño ofensivo temprano."
-                            })
-                        elif total_quirurgico < 7.4 and stats_v['ip'] > 25 and stats_l['ip'] > 25:
-                            prob_tot = min(round(55 + (7.4 - total_quirurgico) * 6, 1), 82.0)
-                            picks_ia_encontrados.append({
-                                "partido": juego["texto"],
-                                "mercado": "Totales",
-                                "seleccion": "Under 8.5 Carreras",
-                                "probabilidad": prob_tot,
-                                "razon": f"Duelo de lanzadores estables proyectan baja anotación."
-                            })
+                            total_quirurgico = (stats_v['fip'] + stats_l['fip']) * 1.15
+                            if total_quirurgico > 9.2:
+                                prob_tot = min(round(55 + (total_quirurgico - 9.2) * 5, 1), 82.0)
+                                picks_ia_encontrados.append({
+                                    "partido": juego["texto"],
+                                    "mercado": "Totales",
+                                    "seleccion": "Over 8.5 Carreras",
+                                    "probabilidad": prob_tot,
+                                    "razon": f"Altas probabilidades de daño ofensivo temprano."
+                                })
+                            elif total_quirurgico < 7.4 and stats_v['ip'] > 25 and stats_l['ip'] > 25:
+                                prob_tot = min(round(55 + (7.4 - total_quirurgico) * 6, 1), 82.0)
+                                picks_ia_encontrados.append({
+                                    "partido": juego["texto"],
+                                    "mercado": "Totales",
+                                    "seleccion": "Under 8.5 Carreras",
+                                    "probabilidad": prob_tot,
+                                    "razon": f"Duelo de lanzadores estables proyectan baja anotación."
+                                })
 
-                        riesgo = stats_v['fip'] + stats_l['fip'] + (stats_v['bb9']*1.2) + (stats_l['bb9']*1.2)
-                        if riesgo < 9.2 and stats_v['ip'] > 25 and stats_l['ip'] > 25:
-                            prob_nrfi = min(round(60 + (9.2 - riesgo) * 5, 1), 87.0)
-                            picks_ia_encontrados.append({
-                                "partido": juego["texto"],
-                                "mercado": "1ra Entrada",
-                                "seleccion": "NRFI",
-                                "probabilidad": prob_nrfi,
-                                "razon": "Riesgo moderado a bajo de carreras en el primer rollo."
-                            })
+                            riesgo = stats_v['fip'] + stats_l['fip'] + (stats_v['bb9']*1.2) + (stats_l['bb9']*1.2)
+                            if riesgo < 9.2 and stats_v['ip'] > 25 and stats_l['ip'] > 25:
+                                prob_nrfi = min(round(60 + (9.2 - riesgo) * 5, 1), 87.0)
+                                picks_ia_encontrados.append({
+                                    "partido": juego["texto"],
+                                    "mercado": "1ra Entrada",
+                                    "seleccion": "NRFI",
+                                    "probabilidad": prob_nrfi,
+                                    "razon": "Riesgo moderado a bajo de carreras en el primer rollo."
+                                })
                 
                 barra_progreso.progress((i + 1) / total_juegos)
             
