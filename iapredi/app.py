@@ -11,7 +11,7 @@ if 'parlay' not in st.session_state:
     st.session_state.parlay = []
 
 # --- 1. CONFIGURACIÓN DE API ---
-API_KEY = "d0aa1d0b3amshb444051e088b6aep120b53jsndf0cdf41fcff" 
+API_KEY = "d0aa1d0b3amshb444051e088b6aep120b53jsndf0cdf41fcff" # REEMPLAZA ESTA KEY POR LA NUEVA
 HEADERS = {
     "X-RapidAPI-Key": API_KEY,
     "X-RapidAPI-Host": "tank01-mlb-live-in-game-real-time-statistics.p.rapidapi.com"
@@ -20,7 +20,7 @@ HEADERS = {
 # Configuración de Zona Horaria (UTC-6)
 tz_centro = timezone(timedelta(hours=-6))
 
-# --- 2. MOTORES DE EXTRACCIÓN Y SABERMETRÍA ---
+# --- 2. MOTORES DE EXTRACCIÓN ULTRA OPTIMIZADOS (50% MENOS CONSUMO) ---
 
 @st.cache_data(ttl=3600)
 def obtener_juegos_hoy():
@@ -55,7 +55,6 @@ def obtener_juegos_hoy():
             away_id = pitchers.get("away", "")
             home_id = pitchers.get("home", "")
             
-            # Capturamos datos contextuales del equipo si vienen en la API
             texto_formato = f"🕒 {game_time}  |  {away_team} @ {home_team}"
             
             juegos.append({
@@ -80,10 +79,12 @@ def obtener_nombre_pitcher(player_id):
         return "TBA"
     try:
         url_p = "https://tank01-mlb-live-in-game-real-time-statistics.p.rapidapi.com/getMLBPlayerInfo"
-        resp_p = requests.get(url_p, headers=HEADERS, params={"playerID": player_id}, timeout=5).json()
+        resp_p = requests.get(url_p, headers=HEADERS, params={"playerID": player_id}, timeout=5)
+        if resp_p.status_code == 429: return "LIMITE_API"
         
-        if resp_p.get("statusCode") == 200:
-            body = resp_p.get("body")
+        datos = resp_p.json()
+        if datos.get("statusCode") == 200:
+            body = datos.get("body")
             if isinstance(body, list) and len(body) > 0:
                 return body[0].get("longName", "TBA")
             elif isinstance(body, dict):
@@ -92,20 +93,35 @@ def obtener_nombre_pitcher(player_id):
         pass
     return "TBA"
 
-def obtener_estadisticas_avanzadas(nombre):
-    if not nombre or nombre.strip() == "" or nombre == "TBA":
-        return None, f"Pitcher '{nombre}' no confirmado."
+@st.cache_data(ttl=3600)
+def obtener_estadisticas_avanzadas(identificador, es_id=False):
+    """Extrae nombre y stats en un solo disparo. Reduce 50% las peticiones API."""
+    if not identificador or identificador.strip() == "" or identificador == "TBA":
+        return None, "TBA"
         
     try:
         url = "https://tank01-mlb-live-in-game-real-time-statistics.p.rapidapi.com/getMLBPlayerInfo"
-        response = requests.get(url, headers=HEADERS, params={"playerName": nombre, "getStats": "true"}, timeout=10)
-        datos = response.json()
+        params = {"getStats": "true"}
+        if es_id:
+            params["playerID"] = identificador
+        else:
+            params["playerName"] = identificador
+            
+        response = requests.get(url, headers=HEADERS, params=params, timeout=10)
         
+        # Detección inmediata de API agotada
+        if response.status_code == 429:
+            return None, "LIMITE_API"
+            
+        datos = response.json()
+        if datos.get("statusCode") == 429 or ("message" in datos and "exceeded" in datos["message"].lower()):
+            return None, "LIMITE_API"
+            
         if datos.get("statusCode") != 200 or not datos.get("body"):
-            return None, f"⚠️ No encontrado: '{nombre}'."
+            return None, f"⚠️ No encontrado."
             
         jugador_data = datos.get("body", [{}])[0]
-        nombre_real = jugador_data.get("longName", nombre)
+        nombre_real = jugador_data.get("longName", identificador)
         stats_root = jugador_data.get("stats", {})
         
         s = stats_root.get("Pitching", stats_root)
@@ -124,7 +140,6 @@ def obtener_estadisticas_avanzadas(nombre):
         confianza_ip = min(ip / 40.0, 1.0)
         fip_ajustado = fip * confianza_ip + 4.50 * (1 - confianza_ip)
         
-        # SBR Base del Abridor
         sbr_poder = ((k9 - 8.5) * 0.15) + ((3.2 - bb9) * 0.15) + ((4.10 - fip_ajustado) * 0.70)
         
         return {
@@ -139,7 +154,7 @@ def obtener_estadisticas_avanzadas(nombre):
         }, None
         
     except Exception as e:
-        return None, f"❌ Error extrayendo datos: {str(e)}"
+        return None, f"❌ Error: {str(e)}"
 
 # --- 3. FUNCIONES DEL BOLETO ---
 def agregar_al_parlay(partido, mercado, seleccion, probabilidad):
@@ -187,6 +202,9 @@ with tab_analizador:
             nombre_v_inicial = obtener_nombre_pitcher(datos_juego["v_id"])
             nombre_l_inicial = obtener_nombre_pitcher(datos_juego["l_id"])
             
+            if nombre_v_inicial == "LIMITE_API" or nombre_l_inicial == "LIMITE_API":
+                st.error("🚨 Límite de la API de RapidAPI agotado. Por favor ingresa una nueva API Key.")
+            
             away_team = datos_juego["away"]
             home_team = datos_juego["home"]
             game_time = datos_juego["time"]
@@ -209,26 +227,29 @@ with tab_analizador:
                 
                 c_inf1, c_inf2, c_btn = st.columns([4, 4, 3])
                 with c_inf1: 
-                    busqueda_v = st.text_input(f"Pitcher Visita", value=nombre_v_inicial, key=f"v_{datos_juego['id']}")
+                    busqueda_v = st.text_input(f"Pitcher Visita", value=nombre_v_inicial if nombre_v_inicial != "LIMITE_API" else "", key=f"v_{datos_juego['id']}")
                 with c_inf2: 
-                    busqueda_l = st.text_input(f"Pitcher Local", value=nombre_l_inicial, key=f"l_{datos_juego['id']}")
+                    busqueda_l = st.text_input(f"Pitcher Local", value=nombre_l_inicial if nombre_l_inicial != "LIMITE_API" else "", key=f"l_{datos_juego['id']}")
                 with c_btn:
                     st.markdown("<br>", unsafe_allow_html=True)
                     generar = st.button("🚀 Analizar", type="primary", use_container_width=True)
 
                 if generar:
                     with st.spinner("Calculando rating híbrido (Pitcheo + Ofensiva)..."):
-                        datos_v, err_v = obtener_estadisticas_avanzadas(busqueda_v)
-                        datos_l, err_l = obtener_estadisticas_avanzadas(busqueda_l)
+                        datos_v, err_v = obtener_estadisticas_avanzadas(busqueda_v, es_id=False)
+                        datos_l, err_l = obtener_estadisticas_avanzadas(busqueda_l, es_id=False)
                         
-                        if err_v: st.error(err_v)
-                        if err_l: st.error(err_l)
-                        
-                        if datos_v and datos_l:
-                            st.session_state.v = datos_v
-                            st.session_state.l = datos_l
+                        if err_v == "LIMITE_API" or err_l == "LIMITE_API":
+                            st.error("🚨 Límite de la API agotado. Actualiza tu API Key.")
+                        else:
+                            if err_v: st.error(err_v)
+                            if err_l: st.error(err_l)
+                            
+                            if datos_v and datos_l:
+                                st.session_state.v = datos_v
+                                st.session_state.l = datos_l
 
-            if 'v' in st.session_state:
+            if 'v' in st.session_state and 'l' in st.session_state:
                 v = st.session_state.v
                 l = st.session_state.l
                 
@@ -246,7 +267,6 @@ with tab_analizador:
                     with st.container(border=True):
                         st.markdown("**🏆 Ganador (ML Híbrido)**")
                         
-                        # Bonificación por factor ofensivo de franquicias estelares (Ej: LAD, NYY, HOU, PHI, TOR)
                         power_teams = ["LAD", "NYY", "HOU", "PHI", "TOR", "BAL", "ATL"]
                         bonus_away = 0.3 if away_team in power_teams else 0.0
                         bonus_home = 0.3 if home_team in power_teams else 0.0
@@ -324,19 +344,22 @@ with tab_ia_picks:
             total_juegos = len(juegos_hoy)
             
             power_teams = ["LAD", "NYY", "HOU", "PHI", "TOR", "BAL", "ATL"]
+            api_limite_alcanzado = False
             
             for i, juego in enumerate(juegos_hoy):
                 status_texto.text(f"Analizando {juego['away']} @ {juego['home']}...")
                 
                 id_v = juego.get("v_id", "")
                 id_l = juego.get("l_id", "")
-                nombre_v = obtener_nombre_pitcher(id_v)
-                nombre_l = obtener_nombre_pitcher(id_l)
                 
-                if nombre_v != "TBA" and nombre_l != "TBA":
-                    stats_v, _ = obtener_estadisticas_avanzadas(nombre_v)
-                    stats_l, _ = obtener_estadisticas_avanzadas(nombre_l)
+                if id_v and id_l:
+                    stats_v, err_v = obtener_estadisticas_avanzadas(id_v, es_id=True)
+                    stats_l, err_l = obtener_estadisticas_avanzadas(id_l, es_id=True)
                     
+                    if err_v == "LIMITE_API" or err_l == "LIMITE_API":
+                        api_limite_alcanzado = True
+                        break
+                        
                     if stats_v and stats_l:
                         bonus_v = 0.3 if juego['away'] in power_teams else 0.0
                         bonus_l = 0.3 if juego['home'] in power_teams else 0.0
@@ -363,7 +386,7 @@ with tab_ia_picks:
                             picks_ia_encontrados.append({
                                 "partido": juego["texto"],
                                 "mercado": "Ponches",
-                                "seleccion": f"{nombre_v.split()[-1]} Over {line_v}",
+                                "seleccion": f"{stats_v['nombre'].split()[-1]} Over {line_v}",
                                 "probabilidad": prob_kv,
                                 "razon": f"Dominio de ponches sostenido (K/9: {stats_v['k9']})."
                             })
@@ -375,20 +398,25 @@ with tab_ia_picks:
                             picks_ia_encontrados.append({
                                 "partido": juego["texto"],
                                 "mercado": "Ponches",
-                                "seleccion": f"{nombre_l.split()[-1]} Over {line_l}",
+                                "seleccion": f"{stats_l['nombre'].split()[-1]} Over {line_l}",
                                 "probabilidad": prob_kl,
                                 "razon": f"Dominio de ponches sostenido (K/9: {stats_l['k9']})."
                             })
 
                 barra_progreso.progress((i + 1) / total_juegos)
             
-            status_texto.text("¡Escaneo completado!")
-            time.sleep(1)
-            status_texto.empty()
-            barra_progreso.empty()
-            
-            picks_ia_encontrados.sort(key=lambda x: x.get("probabilidad", 50.0), reverse=True)
-            st.session_state.picks_ia = picks_ia_encontrados
+            if api_limite_alcanzado:
+                status_texto.empty()
+                barra_progreso.empty()
+                st.error("🚨 **LÍMITE DE API ALCANZADO:** Se te acabaron las 500 consultas mensuales de tu API Key de RapidAPI. Por favor, genera una nueva llave para seguir escaneando.")
+            else:
+                status_texto.text("¡Escaneo completado!")
+                time.sleep(1)
+                status_texto.empty()
+                barra_progreso.empty()
+                
+                picks_ia_encontrados.sort(key=lambda x: x.get("probabilidad", 50.0), reverse=True)
+                st.session_state.picks_ia = picks_ia_encontrados
 
     if 'picks_ia' in st.session_state and st.session_state.picks_ia:
         st.success(f"¡Se filtraron **{len(st.session_state.picks_ia)} selecciones** con el nuevo motor híbrido!")
@@ -406,6 +434,8 @@ with tab_ia_picks:
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("Añadir", key=f"ai_btn_{idx}", use_container_width=True):
                         agregar_al_parlay(pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 75.0))
+    elif 'picks_ia' in st.session_state and not st.session_state.picks_ia:
+        st.info("No hay oportunidades de altísimo valor que superen los estrictos filtros sabermétricos del escáner en este momento. Mejor evitar jugar hoy.")
 
 # --- 5. BARRA LATERAL: BOLETO DE PARLAY ---
 with st.sidebar:
