@@ -17,7 +17,7 @@ HEADERS = {
     "X-RapidAPI-Host": "tank01-mlb-live-in-game-real-time-statistics.p.rapidapi.com"
 }
 
-# Configuración de Zona Horaria (UTC-6 para sincronizar correctamente)
+# Configuración de Zona Horaria (UTC-6)
 tz_centro = timezone(timedelta(hours=-6))
 
 # --- 2. MOTORES DE EXTRACCIÓN Y SABERMETRÍA ---
@@ -55,6 +55,7 @@ def obtener_juegos_hoy():
             away_id = pitchers.get("away", "")
             home_id = pitchers.get("home", "")
             
+            # Capturamos datos contextuales del equipo si vienen en la API
             texto_formato = f"🕒 {game_time}  |  {away_team} @ {home_team}"
             
             juegos.append({
@@ -123,6 +124,7 @@ def obtener_estadisticas_avanzadas(nombre):
         confianza_ip = min(ip / 40.0, 1.0)
         fip_ajustado = fip * confianza_ip + 4.50 * (1 - confianza_ip)
         
+        # SBR Base del Abridor
         sbr_poder = ((k9 - 8.5) * 0.15) + ((3.2 - bb9) * 0.15) + ((4.10 - fip_ajustado) * 0.70)
         
         return {
@@ -158,9 +160,9 @@ def limpiar_parlay():
     st.rerun()
 
 # --- 4. INTERFAZ PRINCIPAL ---
-st.title("⚾ AI Felix Picks Analyst — Motor Quirúrgico")
+st.title("⚾ AI Felix Picks Analyst — Motor Quirúrgico Híbrido")
 
-tab_analizador, tab_ia_picks = st.tabs(["🏟️ Analizador por Partido", "🤖 AI Smart Picks (Escáner de Temporada)"])
+tab_analizador, tab_ia_picks = st.tabs(["🏟️ Analizador por Partido", "🤖 AI Smart Picks (Escáner Híbrido)"])
 
 juegos_hoy = obtener_juegos_hoy()
 
@@ -215,7 +217,7 @@ with tab_analizador:
                     generar = st.button("🚀 Analizar", type="primary", use_container_width=True)
 
                 if generar:
-                    with st.spinner("Calculando rating sabermétrico y probabilidades..."):
+                    with st.spinner("Calculando rating híbrido (Pitcheo + Ofensiva)..."):
                         datos_v, err_v = obtener_estadisticas_avanzadas(busqueda_v)
                         datos_l, err_l = obtener_estadisticas_avanzadas(busqueda_l)
                         
@@ -242,15 +244,22 @@ with tab_analizador:
                 
                 with col_m1:
                     with st.container(border=True):
-                        st.markdown("**🏆 Ganador (ML)**")
-                        diff_poder = v['sbr'] - l['sbr']
+                        st.markdown("**🏆 Ganador (ML Híbrido)**")
                         
-                        # Filtro equilibrado: 0.6 de diferencia SBR
-                        if diff_poder > 0.6:
+                        # Bonificación por factor ofensivo de franquicias estelares (Ej: LAD, NYY, HOU, PHI, TOR)
+                        power_teams = ["LAD", "NYY", "HOU", "PHI", "TOR", "BAL", "ATL"]
+                        bonus_away = 0.3 if away_team in power_teams else 0.0
+                        bonus_home = 0.3 if home_team in power_teams else 0.0
+                        
+                        poder_v_total = v['sbr'] + bonus_away
+                        poder_l_total = l['sbr'] + bonus_home
+                        diff_poder = poder_v_total - poder_l_total
+                        
+                        if diff_poder > 0.5:
                             prob_v = min(round(50 + diff_poder * 12, 1), 88.0)
                             if st.button(f"Gana {away_team} ({prob_v}%)", key="ml_v", use_container_width=True): 
                                 agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {away_team}", prob_v)
-                        elif diff_poder < -0.6:
+                        elif diff_poder < -0.5:
                             prob_l = min(round(50 + abs(diff_poder) * 12, 1), 88.0)
                             if st.button(f"Gana {home_team} ({prob_l}%)", key="ml_l", use_container_width=True): 
                                 agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {home_team}", prob_l)
@@ -299,22 +308,22 @@ with tab_analizador:
                                 agregar_al_parlay(datos_juego['texto'], "Totales", "Under 8.5", prob_under)
 
 # ==========================================
-# PESTAÑA 2: AI SMART PICKS (ESCÁNER MULTIMERCADO)
+# PESTAÑA 2: AI SMART PICKS (ESCÁNER HÍBRIDO)
 # ==========================================
 with tab_ia_picks:
-    st.markdown("### 🤖 Escáner Quirúrgico de la Jornada")
-    st.markdown("La IA evalúa la forma completa de la temporada aislando a los abridores y extrayendo picks con valor matemático frente a las cuotas de Las Vegas.")
+    st.markdown("### 🤖 Escáner Híbrido de la Jornada")
+    st.markdown("La IA evalúa tanto el **pitcheo abridor** como el **factor de poder ofensivo del equipo** para recomendar ganadores con mayor respaldo.")
     
-    if st.button("⚡ Ejecutar Escáner Global", type="primary"):
+    if st.button("⚡ Ejecutar Escáner Híbrido", type="primary"):
         if not juegos_hoy:
-            st.warning("No hay juegos disponibles para escanear hoy.")
+            st.warning("No hay juegos hoy.")
         else:
             picks_ia_encontrados = []
-            
             barra_progreso = st.progress(0)
             status_texto = st.empty()
-            
             total_juegos = len(juegos_hoy)
+            
+            power_teams = ["LAD", "NYY", "HOU", "PHI", "TOR", "BAL", "ATL"]
             
             for i, juego in enumerate(juegos_hoy):
                 status_texto.text(f"Analizando {juego['away']} @ {juego['home']}...")
@@ -329,10 +338,14 @@ with tab_ia_picks:
                     stats_l, _ = obtener_estadisticas_avanzadas(nombre_l)
                     
                     if stats_v and stats_l:
-                        diff = stats_v['sbr'] - stats_l['sbr']
+                        bonus_v = 0.3 if juego['away'] in power_teams else 0.0
+                        bonus_l = 0.3 if juego['home'] in power_teams else 0.0
                         
-                        # FILTRO EQUILIBRADO PARA MONEYLINE (0.9 de ventaja SBR)
-                        if abs(diff) > 0.9:
+                        poder_v_total = stats_v['sbr'] + bonus_v
+                        poder_l_total = stats_l['sbr'] + bonus_l
+                        diff = poder_v_total - poder_l_total
+                        
+                        if abs(diff) > 0.6:
                             fav_team = juego['away'] if diff > 0 else juego['home']
                             prob = min(round(60 + abs(diff) * 12, 1), 88.0)
                             picks_ia_encontrados.append({
@@ -340,7 +353,7 @@ with tab_ia_picks:
                                 "mercado": "Moneyline",
                                 "seleccion": f"Gana {fav_team}",
                                 "probabilidad": prob,
-                                "razon": f"Superioridad clara en Rating Sabermétrico del abridor (SBR: {max(stats_v['sbr'], stats_l['sbr']):.2f})."
+                                "razon": f"Modelo Híbrido: Ventaja de pitcheo combinada con fortaleza ofensiva del equipo."
                             })
 
                         if stats_v['ip'] > 30 and stats_v['k9'] >= 9.5:
@@ -352,7 +365,7 @@ with tab_ia_picks:
                                 "mercado": "Ponches",
                                 "seleccion": f"{nombre_v.split()[-1]} Over {line_v}",
                                 "probabilidad": prob_kv,
-                                "razon": f"Dominio élite sostenido en la temporada (K/9: {stats_v['k9']})."
+                                "razon": f"Dominio de ponches sostenido (K/9: {stats_v['k9']})."
                             })
 
                         if stats_l['ip'] > 30 and stats_l['k9'] >= 9.5:
@@ -364,43 +377,12 @@ with tab_ia_picks:
                                 "mercado": "Ponches",
                                 "seleccion": f"{nombre_l.split()[-1]} Over {line_l}",
                                 "probabilidad": prob_kl,
-                                "razon": f"Dominio élite sostenido en la temporada (K/9: {stats_l['k9']})."
+                                "razon": f"Dominio de ponches sostenido (K/9: {stats_l['k9']})."
                             })
 
-                        total_quirurgico = (stats_v['fip'] + stats_l['fip']) * 1.15
-                        if total_quirurgico > 9.5:
-                            prob_tot = min(round(58 + (total_quirurgico - 9.5) * 5, 1), 82.0)
-                            picks_ia_encontrados.append({
-                                "partido": juego["texto"],
-                                "mercado": "Totales",
-                                "seleccion": "Over 8.5 Carreras",
-                                "probabilidad": prob_tot,
-                                "razon": f"FIPs ajustados altos; nula prevención de carreras de ambos abridores."
-                            })
-                        elif total_quirurgico < 7.0 and stats_v['ip'] > 30 and stats_l['ip'] > 30:
-                            prob_tot = min(round(58 + (7.0 - total_quirurgico) * 6, 1), 82.0)
-                            picks_ia_encontrados.append({
-                                "partido": juego["texto"],
-                                "mercado": "Totales",
-                                "seleccion": "Under 8.5 Carreras",
-                                "probabilidad": prob_tot,
-                                "razon": f"Duelo de abridores herméticos probados en la campaña actual."
-                            })
-
-                        riesgo = stats_v['fip'] + stats_l['fip'] + (stats_v['bb9']*1.2) + (stats_l['bb9']*1.2)
-                        if riesgo < 8.5 and stats_v['ip'] > 30 and stats_l['ip'] > 30:
-                            prob_nrfi = min(round(65 + (8.5 - riesgo) * 5, 1), 87.0)
-                            picks_ia_encontrados.append({
-                                "partido": juego["texto"],
-                                "mercado": "1ra Entrada",
-                                "seleccion": "NRFI",
-                                "probabilidad": prob_nrfi,
-                                "razon": "Control de bases de primer nivel. Riesgo mínimo de tráfico temprano."
-                            })
-                
                 barra_progreso.progress((i + 1) / total_juegos)
             
-            status_texto.text("¡Escaneo global completado!")
+            status_texto.text("¡Escaneo completado!")
             time.sleep(1)
             status_texto.empty()
             barra_progreso.empty()
@@ -409,7 +391,7 @@ with tab_ia_picks:
             st.session_state.picks_ia = picks_ia_encontrados
 
     if 'picks_ia' in st.session_state and st.session_state.picks_ia:
-        st.success(f"¡Se filtraron **{len(st.session_state.picks_ia)} selecciones sólidas** de toda la jornada!")
+        st.success(f"¡Se filtraron **{len(st.session_state.picks_ia)} selecciones** con el nuevo motor híbrido!")
         
         for idx, pick in enumerate(st.session_state.picks_ia):
             with st.container(border=True):
@@ -424,15 +406,13 @@ with tab_ia_picks:
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("Añadir", key=f"ai_btn_{idx}", use_container_width=True):
                         agregar_al_parlay(pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 75.0))
-    elif 'picks_ia' in st.session_state:
-        st.info("No hay oportunidades de altísimo valor que superen los estrictos filtros sabermétricos del escáner en este momento. Mejor evitar jugar hoy.")
 
 # --- 5. BARRA LATERAL: BOLETO DE PARLAY ---
 with st.sidebar:
     st.markdown("### 🎫 MI ENTRADA")
     
     if len(st.session_state.parlay) == 0:
-        st.caption("Aún no tienes selecciones en tu boleto. Analiza partidos para agregarlas.")
+        st.caption("Aún no tienes selecciones en tu boleto.")
     else:
         prob_combinada_decimal = 1.0
         for pick in st.session_state.parlay:
@@ -440,7 +420,6 @@ with st.sidebar:
             prob_combinada_decimal *= prob
             
         prob_porcentaje = prob_combinada_decimal * 100
-        
         dec_odds = 1 / prob_combinada_decimal if prob_combinada_decimal > 0 else 1.0
         multiplicador_justo = f"{dec_odds:.2f}x"
             
@@ -450,7 +429,7 @@ with st.sidebar:
         with c_m:
             st.markdown(f"**Momio Justo**\n\n`{multiplicador_justo}`")
             
-        st.caption("💡 *Si Draftea te ofrece un multiplicador mayor a este, tienes una apuesta con valor positivo (+EV).*")
+        st.caption("💡 *Si Draftea te ofrece un multiplicador mayor a este, tienes valor (+EV).*")
         
         st.divider()
         
