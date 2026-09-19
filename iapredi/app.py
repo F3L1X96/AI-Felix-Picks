@@ -11,7 +11,7 @@ if 'parlay' not in st.session_state:
     st.session_state.parlay = []
 
 # --- 1. CONFIGURACIÓN DE API ---
-API_KEY = "93cc436e32mshada5a27f9d4edb9p17ace7jsn9deb1657a19d" # REEMPLAZA ESTA KEY POR LA NUEVA
+API_KEY = "93cc436e32mshada5a27f9d4edb9p17ace7jsn9deb1657a19d" 
 HEADERS = {
     "X-RapidAPI-Key": API_KEY,
     "X-RapidAPI-Host": "tank01-mlb-live-in-game-real-time-statistics.p.rapidapi.com"
@@ -20,7 +20,7 @@ HEADERS = {
 # Configuración de Zona Horaria (UTC-6)
 tz_centro = timezone(timedelta(hours=-6))
 
-# --- 2. MOTORES DE EXTRACCIÓN ULTRA OPTIMIZADOS (50% MENOS CONSUMO) ---
+# --- 2. MOTORES DE EXTRACCIÓN Y SABERMETRÍA ---
 
 @st.cache_data(ttl=3600)
 def obtener_juegos_hoy():
@@ -95,7 +95,6 @@ def obtener_nombre_pitcher(player_id):
 
 @st.cache_data(ttl=3600)
 def obtener_estadisticas_avanzadas(identificador, es_id=False):
-    """Extrae nombre y stats en un solo disparo. Reduce 50% las peticiones API."""
     if not identificador or identificador.strip() == "" or identificador == "TBA":
         return None, "TBA"
         
@@ -109,7 +108,6 @@ def obtener_estadisticas_avanzadas(identificador, es_id=False):
             
         response = requests.get(url, headers=HEADERS, params=params, timeout=10)
         
-        # Detección inmediata de API agotada
         if response.status_code == 429:
             return None, "LIMITE_API"
             
@@ -267,7 +265,7 @@ with tab_analizador:
                     with st.container(border=True):
                         st.markdown("**🏆 Ganador (ML Híbrido)**")
                         
-                        power_teams = ["LAD", "NYY", "HOU", "PHI", "TOR", "BAL", "ATL"]
+                        power_teams = ["LAD", "NYY", "HOU", "PHI", "TOR", "BAL", "ATL", "SD"]
                         bonus_away = 0.3 if away_team in power_teams else 0.0
                         bonus_home = 0.3 if home_team in power_teams else 0.0
                         
@@ -275,11 +273,11 @@ with tab_analizador:
                         poder_l_total = l['sbr'] + bonus_home
                         diff_poder = poder_v_total - poder_l_total
                         
-                        if diff_poder > 0.5:
+                        if diff_poder > 0.4:
                             prob_v = min(round(50 + diff_poder * 12, 1), 88.0)
                             if st.button(f"Gana {away_team} ({prob_v}%)", key="ml_v", use_container_width=True): 
                                 agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {away_team}", prob_v)
-                        elif diff_poder < -0.5:
+                        elif diff_poder < -0.4:
                             prob_l = min(round(50 + abs(diff_poder) * 12, 1), 88.0)
                             if st.button(f"Gana {home_team} ({prob_l}%)", key="ml_l", use_container_width=True): 
                                 agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {home_team}", prob_l)
@@ -343,7 +341,7 @@ with tab_ia_picks:
             status_texto = st.empty()
             total_juegos = len(juegos_hoy)
             
-            power_teams = ["LAD", "NYY", "HOU", "PHI", "TOR", "BAL", "ATL"]
+            power_teams = ["LAD", "NYY", "HOU", "PHI", "TOR", "BAL", "ATL", "SD"]
             api_limite_alcanzado = False
             
             for i, juego in enumerate(juegos_hoy):
@@ -368,47 +366,79 @@ with tab_ia_picks:
                         poder_l_total = stats_l['sbr'] + bonus_l
                         diff = poder_v_total - poder_l_total
                         
-                        if abs(diff) > 0.6:
+                        # Filtros Relajados para encontrar valor diario
+                        if abs(diff) > 0.4:
                             fav_team = juego['away'] if diff > 0 else juego['home']
-                            prob = min(round(60 + abs(diff) * 12, 1), 88.0)
+                            prob = min(round(55 + abs(diff) * 12, 1), 88.0)
                             picks_ia_encontrados.append({
                                 "partido": juego["texto"],
                                 "mercado": "Moneyline",
                                 "seleccion": f"Gana {fav_team}",
                                 "probabilidad": prob,
-                                "razon": f"Modelo Híbrido: Ventaja de pitcheo combinada con fortaleza ofensiva del equipo."
+                                "razon": f"Ventaja híbrida detectada a favor de {fav_team}."
                             })
 
-                        if stats_v['ip'] > 30 and stats_v['k9'] >= 9.5:
+                        if stats_v['ip'] > 25 and stats_v['k9'] >= 8.8:
                             proj_v = round((stats_v['k9'] / 9) * 5.5, 1)
                             line_v = int(proj_v) - 0.5
-                            prob_kv = min(round(65 + (stats_v['k9'] - 9.5) * 4, 1), 88.0)
+                            prob_kv = min(round(60 + (stats_v['k9'] - 8.8) * 4, 1), 88.0)
                             picks_ia_encontrados.append({
                                 "partido": juego["texto"],
                                 "mercado": "Ponches",
                                 "seleccion": f"{stats_v['nombre'].split()[-1]} Over {line_v}",
                                 "probabilidad": prob_kv,
-                                "razon": f"Dominio de ponches sostenido (K/9: {stats_v['k9']})."
+                                "razon": f"Buen índice de ponches proyectado (K/9: {stats_v['k9']})."
                             })
 
-                        if stats_l['ip'] > 30 and stats_l['k9'] >= 9.5:
+                        if stats_l['ip'] > 25 and stats_l['k9'] >= 8.8:
                             proj_l = round((stats_l['k9'] / 9) * 5.5, 1)
                             line_l = int(proj_l) - 0.5
-                            prob_kl = min(round(65 + (stats_l['k9'] - 9.5) * 4, 1), 88.0)
+                            prob_kl = min(round(60 + (stats_l['k9'] - 8.8) * 4, 1), 88.0)
                             picks_ia_encontrados.append({
                                 "partido": juego["texto"],
                                 "mercado": "Ponches",
                                 "seleccion": f"{stats_l['nombre'].split()[-1]} Over {line_l}",
                                 "probabilidad": prob_kl,
-                                "razon": f"Dominio de ponches sostenido (K/9: {stats_l['k9']})."
+                                "razon": f"Buen índice de ponches proyectado (K/9: {stats_l['k9']})."
                             })
 
+                        total_quirurgico = (stats_v['fip'] + stats_l['fip']) * 1.15
+                        if total_quirurgico > 9.2:
+                            prob_tot = min(round(55 + (total_quirurgico - 9.2) * 5, 1), 82.0)
+                            picks_ia_encontrados.append({
+                                "partido": juego["texto"],
+                                "mercado": "Totales",
+                                "seleccion": "Over 8.5 Carreras",
+                                "probabilidad": prob_tot,
+                                "razon": f"Altas probabilidades de daño ofensivo temprano."
+                            })
+                        elif total_quirurgico < 7.4 and stats_v['ip'] > 25 and stats_l['ip'] > 25:
+                            prob_tot = min(round(55 + (7.4 - total_quirurgico) * 6, 1), 82.0)
+                            picks_ia_encontrados.append({
+                                "partido": juego["texto"],
+                                "mercado": "Totales",
+                                "seleccion": "Under 8.5 Carreras",
+                                "probabilidad": prob_tot,
+                                "razon": f"Duelo de lanzadores estables proyectan baja anotación."
+                            })
+
+                        riesgo = stats_v['fip'] + stats_l['fip'] + (stats_v['bb9']*1.2) + (stats_l['bb9']*1.2)
+                        if riesgo < 9.2 and stats_v['ip'] > 25 and stats_l['ip'] > 25:
+                            prob_nrfi = min(round(60 + (9.2 - riesgo) * 5, 1), 87.0)
+                            picks_ia_encontrados.append({
+                                "partido": juego["texto"],
+                                "mercado": "1ra Entrada",
+                                "seleccion": "NRFI",
+                                "probabilidad": prob_nrfi,
+                                "razon": "Riesgo moderado a bajo de carreras en el primer rollo."
+                            })
+                
                 barra_progreso.progress((i + 1) / total_juegos)
             
             if api_limite_alcanzado:
                 status_texto.empty()
                 barra_progreso.empty()
-                st.error("🚨 **LÍMITE DE API ALCANZADO:** Se te acabaron las 500 consultas mensuales de tu API Key de RapidAPI. Por favor, genera una nueva llave para seguir escaneando.")
+                st.error("🚨 **LÍMITE DE API ALCANZADO:** Se te acabaron las 500 consultas mensuales de tu API Key de RapidAPI.")
             else:
                 status_texto.text("¡Escaneo completado!")
                 time.sleep(1)
@@ -419,7 +449,7 @@ with tab_ia_picks:
                 st.session_state.picks_ia = picks_ia_encontrados
 
     if 'picks_ia' in st.session_state and st.session_state.picks_ia:
-        st.success(f"¡Se filtraron **{len(st.session_state.picks_ia)} selecciones** con el nuevo motor híbrido!")
+        st.success(f"¡Se filtraron **{len(st.session_state.picks_ia)} selecciones** con los filtros relajados!")
         
         for idx, pick in enumerate(st.session_state.picks_ia):
             with st.container(border=True):
@@ -435,7 +465,7 @@ with tab_ia_picks:
                     if st.button("Añadir", key=f"ai_btn_{idx}", use_container_width=True):
                         agregar_al_parlay(pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 75.0))
     elif 'picks_ia' in st.session_state and not st.session_state.picks_ia:
-        st.info("No hay oportunidades de altísimo valor que superen los estrictos filtros sabermétricos del escáner en este momento. Mejor evitar jugar hoy.")
+        st.info("Incluso con los filtros relajados, hoy la cartelera está muy impredecible. Puedes analizar juegos manuales en la Pestaña 1.")
 
 # --- 5. BARRA LATERAL: BOLETO DE PARLAY ---
 with st.sidebar:
