@@ -11,7 +11,7 @@ if 'parlay' not in st.session_state:
     st.session_state.parlay = []
 
 # --- 1. CONFIGURACIÓN DE API ---
-API_KEY = "93cc436e32mshada5a27f9d4edb9p17ace7jsn9deb1657a19d" 
+API_KEY = "93cc436e32mshada5a27f9d4edb9p17ace7jsn9deb1657a19d" # <- RECUERDA PONER TU LLAVE NUEVA AQUÍ
 HEADERS = {
     "X-RapidAPI-Key": API_KEY,
     "X-RapidAPI-Host": "tank01-mlb-live-in-game-real-time-statistics.p.rapidapi.com"
@@ -20,7 +20,7 @@ HEADERS = {
 # Configuración de Zona Horaria (UTC-6)
 tz_centro = timezone(timedelta(hours=-6))
 
-# --- 2. MOTORES DE EXTRACCIÓN Y SABERMETRÍA ---
+# --- 2. MOTORES DE EXTRACCIÓN Y SABERMETRÍA PULIDOS ---
 
 @st.cache_data(ttl=3600)
 def obtener_juegos_hoy():
@@ -95,7 +95,7 @@ def obtener_nombre_pitcher(player_id):
 
 @st.cache_data(ttl=3600)
 def obtener_estadisticas_avanzadas(nombre):
-    """Buscamos siempre por Nombre para que la API de Tank01 entregue los datos correctamente."""
+    """Búsqueda optimizada por Nombre y detección de volumen de entradas."""
     if not nombre or nombre.strip() == "" or nombre == "TBA":
         return None, "TBA"
         
@@ -128,6 +128,12 @@ def obtener_estadisticas_avanzadas(nombre):
         hr = float(s.get("HR", "0") or 0)
         bb = float(s.get("BB", "0") or 0)
         
+        # Extraer juegos iniciados para medir su resistencia (Volumen real)
+        juegos = float(s.get("GamesStarted", s.get("GS", s.get("gamesStarted", s.get("G", 0)))) or 0)
+        avg_ip = round(ip / juegos, 1) if juegos > 0 else 5.0
+        if avg_ip > 7.0: avg_ip = 6.0 # Límite realista
+        if avg_ip < 1.0: avg_ip = 4.0 # Evitar proyecciones de 0
+        
         k9 = round((so / ip) * 9, 2) if ip > 0 else 0.0
         bb9 = round((bb / ip) * 9, 2) if ip > 0 else 0.0
         fip = round(((13 * hr + 3 * bb - 2 * so) / ip) + 3.10, 2) if ip > 0 else 4.50
@@ -145,6 +151,7 @@ def obtener_estadisticas_avanzadas(nombre):
             "bb9": bb9,
             "fip": fip_ajustado, 
             "ip": ip,
+            "avg_ip": avg_ip, # NUEVO: Control de entradas reales
             "sbr": sbr_poder
         }, None
         
@@ -170,9 +177,9 @@ def limpiar_parlay():
     st.rerun()
 
 # --- 4. INTERFAZ PRINCIPAL ---
-st.title("⚾ AI Felix Picks Analyst — Motor Quirúrgico Híbrido")
+st.title("⚾ AI Felix Picks Analyst — Motor Quirúrgico v2.0")
 
-tab_analizador, tab_ia_picks = st.tabs(["🏟️ Analizador por Partido", "🤖 AI Smart Picks (Escáner Híbrido)"])
+tab_analizador, tab_ia_picks = st.tabs(["🏟️ Analizador por Partido", "🤖 AI Smart Picks (Filtro Strict)"])
 
 juegos_hoy = obtener_juegos_hoy()
 
@@ -198,7 +205,7 @@ with tab_analizador:
             nombre_l_inicial = obtener_nombre_pitcher(datos_juego["l_id"])
             
             if nombre_v_inicial == "LIMITE_API" or nombre_l_inicial == "LIMITE_API":
-                st.error("🚨 Límite de la API de RapidAPI agotado. Por favor ingresa una nueva API Key.")
+                st.error("🚨 Límite de API de RapidAPI agotado. Ingresa tu nueva Key.")
             
             away_team = datos_juego["away"]
             home_team = datos_juego["home"]
@@ -211,12 +218,12 @@ with tab_analizador:
                 col_lg1, col_info, col_lg2 = st.columns([2, 3, 2])
                 with col_lg1:
                     st.image(logo_away, width=35)
-                    st.markdown(f"<div style='text-align: left;'><b>{away_team}</b> <span style='font-size: 11px; color: gray;'>Visita</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='text-align: left;'><b>{away_team}</b></div>", unsafe_allow_html=True)
                 with col_info:
                     st.markdown(f"<div style='text-align: center;'><h4 style='color: #1ed760; margin: 0;'>VS</h4><p style='margin: 0; font-size: 13px;'>🕒 {game_time}</p></div>", unsafe_allow_html=True)
                 with col_lg2:
                     st.image(logo_home, width=35)
-                    st.markdown(f"<div style='text-align: right;'><b>{home_team}</b> <span style='font-size: 11px; color: gray;'>Local</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='text-align: right;'><b>{home_team}</b></div>", unsafe_allow_html=True)
                 
                 st.divider()
                 
@@ -230,7 +237,7 @@ with tab_analizador:
                     generar = st.button("🚀 Analizar", type="primary", use_container_width=True)
 
                 if generar:
-                    with st.spinner("Calculando rating híbrido (Pitcheo + Ofensiva)..."):
+                    with st.spinner("Calculando modelo sabermétrico estricto..."):
                         datos_v, err_v = obtener_estadisticas_avanzadas(busqueda_v)
                         datos_l, err_l = obtener_estadisticas_avanzadas(busqueda_l)
                         
@@ -249,7 +256,7 @@ with tab_analizador:
                 l = st.session_state.l
                 
                 m1, m2, m3, m4 = st.columns(4)
-                with m1: st.caption(f"**IP:** {v['ip']} vs {l['ip']}")
+                with m1: st.caption(f"**IP/Start:** {v['avg_ip']} vs {l['avg_ip']}") # MOSTRANDO PROMEDIO DE ENTRADAS
                 with m2: st.caption(f"**FIP:** {v['fip']:.2f} vs {l['fip']:.2f}")
                 with m3: st.caption(f"**K/9:** {v['k9']} vs {l['k9']}")
                 with m4: st.caption(f"**BB/9:** {v['bb9']} vs {l['bb9']}")
@@ -260,76 +267,76 @@ with tab_analizador:
                 
                 with col_m1:
                     with st.container(border=True):
-                        st.markdown("**🏆 Ganador (ML Híbrido)**")
+                        st.markdown("**🏆 Ganador (ML)**")
                         
-                        power_teams = ["LAD", "NYY", "HOU", "PHI", "TOR", "BAL", "ATL", "SD"]
-                        bonus_away = 0.3 if away_team in power_teams else 0.0
-                        bonus_home = 0.3 if home_team in power_teams else 0.0
+                        # Filtro SBR Estricto Puro (0.7) sin bonos artificiales
+                        diff_poder = v['sbr'] - l['sbr']
                         
-                        poder_v_total = v['sbr'] + bonus_away
-                        poder_l_total = l['sbr'] + bonus_home
-                        diff_poder = poder_v_total - poder_l_total
-                        
-                        if diff_poder > 0.4:
+                        if diff_poder > 0.7:
                             prob_v = min(round(50 + diff_poder * 12, 1), 88.0)
                             if st.button(f"Gana {away_team} ({prob_v}%)", key="ml_v", use_container_width=True): 
                                 agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {away_team}", prob_v)
-                        elif diff_poder < -0.4:
+                        elif diff_poder < -0.7:
                             prob_l = min(round(50 + abs(diff_poder) * 12, 1), 88.0)
                             if st.button(f"Gana {home_team} ({prob_l}%)", key="ml_l", use_container_width=True): 
                                 agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {home_team}", prob_l)
                         else:
-                            st.caption("⚠️ Empate técnico (Evitar ML)")
+                            st.caption("⚠️ Riesgo ofensivo / Empate técnico (Evitar ML)")
 
                     with st.container(border=True):
                         st.markdown("**🎯 Ponches (K's)**")
-                        proj_v = round((v['k9'] / 9) * 5.5, 1)
-                        proj_l = round((l['k9'] / 9) * 5.5, 1)
+                        # PROYECCIÓN BASADA EN SUS ENTRADAS REALES, NO EN 5.5 INVENTADAS
+                        proj_v = round((v['k9'] / 9) * v['avg_ip'], 1)
+                        proj_l = round((l['k9'] / 9) * l['avg_ip'], 1)
                         
-                        prob_kv = min(round(50 + max(0, v['k9'] - 8.5) * 5, 1), 85.0)
-                        prob_kl = min(round(50 + max(0, l['k9'] - 8.5) * 5, 1), 85.0)
+                        st.caption(f"📈 Proyección real IA: **{proj_v}** K's vs **{proj_l}** K's")
                         
-                        if st.button(f"{v['nombre'].split()[-1]} Over {int(proj_v)-0.5} K's ({prob_kv}%)", key="kv", use_container_width=True): 
-                            agregar_al_parlay(datos_juego['texto'], "Ponches", f"{v['nombre']} Over {int(proj_v)-0.5}", prob_kv)
-                        if st.button(f"{l['nombre'].split()[-1]} Over {int(proj_l)-0.5} K's ({prob_kl}%)", key="kl", use_container_width=True): 
-                            agregar_al_parlay(datos_juego['texto'], "Ponches", f"{l['nombre']} Over {int(proj_l)-0.5}", prob_kl)
+                        prob_kv = min(round(50 + max(0, v['k9'] - 8.5) * 4 + max(0, v['avg_ip'] - 4.5) * 3, 1), 85.0)
+                        prob_kl = min(round(50 + max(0, l['k9'] - 8.5) * 4 + max(0, l['avg_ip'] - 4.5) * 3, 1), 85.0)
+                        
+                        if st.button(f"{v['nombre'].split()[-1]} Over {max(2.5, int(proj_v)-0.5)} K's ({prob_kv}%)", key="kv", use_container_width=True): 
+                            agregar_al_parlay(datos_juego['texto'], "Ponches", f"{v['nombre']} Over {max(2.5, int(proj_v)-0.5)}", prob_kv)
+                        if st.button(f"{l['nombre'].split()[-1]} Over {max(2.5, int(proj_l)-0.5)} K's ({prob_kl}%)", key="kl", use_container_width=True): 
+                            agregar_al_parlay(datos_juego['texto'], "Ponches", f"{l['nombre']} Over {max(2.5, int(proj_l)-0.5)}", prob_kl)
 
                 with col_m2:
                     with st.container(border=True):
                         st.markdown("**🔥 1ra Entrada**")
                         riesgo_quirurgico = v['fip'] + l['fip'] + (v['bb9']*1.2) + (l['bb9']*1.2)
                         
-                        if riesgo_quirurgico < 9.5:
-                            prob_nrfi = min(round(50 + (9.5 - riesgo_quirurgico) * 6, 1), 87.0)
+                        if riesgo_quirurgico < 9.0:
+                            prob_nrfi = min(round(50 + (9.0 - riesgo_quirurgico) * 6, 1), 87.0)
                             if st.button(f"Añadir NRFI ({prob_nrfi}%)", key="nrfi", use_container_width=True): 
                                 agregar_al_parlay(datos_juego['texto'], "1ra Entrada", "NRFI", prob_nrfi)
                         else:
-                            prob_yrfi = min(round(50 + (riesgo_quirurgico - 9.5) * 6, 1), 87.0)
+                            prob_yrfi = min(round(50 + (riesgo_quirurgico - 9.0) * 6, 1), 87.0)
                             if st.button(f"Añadir YRFI ({prob_yrfi}%)", key="yrfi", use_container_width=True): 
                                 agregar_al_parlay(datos_juego['texto'], "1ra Entrada", "YRFI", prob_yrfi)
 
                     with st.container(border=True):
                         st.markdown("**📈 Carreras Totales**")
                         total_quirurgico = (v['fip'] + l['fip']) * 1.15
-                        st.caption(f"Proyectadas: {total_quirurgico:.1f}")
+                        st.caption(f"Métrica proyectada: {total_quirurgico:.1f} (Peligro si > 9.5)")
                         
-                        if total_quirurgico > 9.0:
-                            prob_over = min(round(50 + (total_quirurgico - 9.0) * 6, 1), 82.0)
+                        if total_quirurgico > 9.5:
+                            prob_over = min(round(50 + (total_quirurgico - 9.5) * 6, 1), 82.0)
                             if st.button(f"Over 8.5 Carreras ({prob_over}%)", key="over", use_container_width=True): 
                                 agregar_al_parlay(datos_juego['texto'], "Totales", "Over 8.5", prob_over)
-                        else:
-                            prob_under = min(round(50 + (9.0 - total_quirurgico) * 6, 1), 82.0)
+                        elif total_quirurgico < 7.5:
+                            prob_under = min(round(50 + (7.5 - total_quirurgico) * 6, 1), 82.0)
                             if st.button(f"Under 8.5 Carreras ({prob_under}%)", key="under", use_container_width=True): 
                                 agregar_al_parlay(datos_juego['texto'], "Totales", "Under 8.5", prob_under)
+                        else:
+                            st.caption("Línea apretada. Mejor no jugar totales.")
 
 # ==========================================
-# PESTAÑA 2: AI SMART PICKS (ESCÁNER HÍBRIDO)
+# PESTAÑA 2: AI SMART PICKS (ESCÁNER ESTRICTO P. 2.0)
 # ==========================================
 with tab_ia_picks:
-    st.markdown("### 🤖 Escáner Híbrido de la Jornada")
-    st.markdown("La IA evalúa tanto el **pitcheo abridor** como el **factor de poder ofensivo del equipo** para recomendar ganadores con mayor respaldo.")
+    st.markdown("### 🤖 Escáner Quirúrgico de la Jornada")
+    st.markdown("Filtro blindado: Mide volumen de pitcheo real, elimina falsos favoritos de mercado y castiga lanzadores limitados.")
     
-    if st.button("⚡ Ejecutar Escáner Híbrido", type="primary"):
+    if st.button("⚡ Ejecutar Escáner Seguro", type="primary"):
         if not juegos_hoy:
             st.warning("No hay juegos hoy.")
         else:
@@ -337,8 +344,6 @@ with tab_ia_picks:
             barra_progreso = st.progress(0)
             status_texto = st.empty()
             total_juegos = len(juegos_hoy)
-            
-            power_teams = ["LAD", "NYY", "HOU", "PHI", "TOR", "BAL", "ATL", "SD"]
             api_limite_alcanzado = False
             
             for i, juego in enumerate(juegos_hoy):
@@ -348,7 +353,6 @@ with tab_ia_picks:
                 id_l = juego.get("l_id", "")
                 
                 if id_v and id_l:
-                    # Regresamos a buscar el NOMBRE del pitcher primero para que no falle la sabermetría
                     nombre_v = obtener_nombre_pitcher(id_v)
                     nombre_l = obtener_nombre_pitcher(id_l)
                     
@@ -365,78 +369,65 @@ with tab_ia_picks:
                             break
                             
                         if stats_v and stats_l:
-                            bonus_v = 0.3 if juego['away'] in power_teams else 0.0
-                            bonus_l = 0.3 if juego['home'] in power_teams else 0.0
+                            diff = stats_v['sbr'] - stats_l['sbr']
                             
-                            poder_v_total = stats_v['sbr'] + bonus_v
-                            poder_l_total = stats_l['sbr'] + bonus_l
-                            diff = poder_v_total - poder_l_total
-                            
-                            # Filtros Relajados para encontrar valor diario
-                            if abs(diff) > 0.4:
+                            # Filtro SBR Sólido a 0.7 (Elimina volados)
+                            if abs(diff) > 0.7:
                                 fav_team = juego['away'] if diff > 0 else juego['home']
-                                prob = min(round(55 + abs(diff) * 12, 1), 88.0)
+                                prob = min(round(60 + abs(diff) * 12, 1), 88.0)
                                 picks_ia_encontrados.append({
                                     "partido": juego["texto"],
                                     "mercado": "Moneyline",
                                     "seleccion": f"Gana {fav_team}",
                                     "probabilidad": prob,
-                                    "razon": f"Ventaja híbrida detectada a favor de {fav_team}."
+                                    "razon": f"SBR puro superior, sin bonos falsos."
                                 })
 
-                            if stats_v['ip'] > 25 and stats_v['k9'] >= 8.8:
-                                proj_v = round((stats_v['k9'] / 9) * 5.5, 1)
+                            # Ponches exigen K/9 alto Y un volumen de entradas sano (>4.8)
+                            if stats_v['ip'] > 25 and stats_v['k9'] >= 9.0 and stats_v['avg_ip'] > 4.8:
+                                proj_v = round((stats_v['k9'] / 9) * stats_v['avg_ip'], 1)
                                 line_v = int(proj_v) - 0.5
-                                prob_kv = min(round(60 + (stats_v['k9'] - 8.8) * 4, 1), 88.0)
+                                prob_kv = min(round(60 + (stats_v['k9'] - 9.0) * 4, 1), 88.0)
                                 picks_ia_encontrados.append({
                                     "partido": juego["texto"],
                                     "mercado": "Ponches",
                                     "seleccion": f"{stats_v['nombre'].split()[-1]} Over {line_v}",
                                     "probabilidad": prob_kv,
-                                    "razon": f"Buen índice de ponches proyectado (K/9: {stats_v['k9']})."
+                                    "razon": f"K/9 Élite + Volumen Garantizado (Proyección: {proj_v} K's)."
                                 })
 
-                            if stats_l['ip'] > 25 and stats_l['k9'] >= 8.8:
-                                proj_l = round((stats_l['k9'] / 9) * 5.5, 1)
+                            if stats_l['ip'] > 25 and stats_l['k9'] >= 9.0 and stats_l['avg_ip'] > 4.8:
+                                proj_l = round((stats_l['k9'] / 9) * stats_l['avg_ip'], 1)
                                 line_l = int(proj_l) - 0.5
-                                prob_kl = min(round(60 + (stats_l['k9'] - 8.8) * 4, 1), 88.0)
+                                prob_kl = min(round(60 + (stats_l['k9'] - 9.0) * 4, 1), 88.0)
                                 picks_ia_encontrados.append({
                                     "partido": juego["texto"],
                                     "mercado": "Ponches",
                                     "seleccion": f"{stats_l['nombre'].split()[-1]} Over {line_l}",
                                     "probabilidad": prob_kl,
-                                    "razon": f"Buen índice de ponches proyectado (K/9: {stats_l['k9']})."
+                                    "razon": f"K/9 Élite + Volumen Garantizado (Proyección: {proj_l} K's)."
                                 })
 
                             total_quirurgico = (stats_v['fip'] + stats_l['fip']) * 1.15
-                            if total_quirurgico > 9.2:
-                                prob_tot = min(round(55 + (total_quirurgico - 9.2) * 5, 1), 82.0)
+                            if total_quirurgico > 9.5:
+                                prob_tot = min(round(60 + (total_quirurgico - 9.5) * 5, 1), 82.0)
                                 picks_ia_encontrados.append({
                                     "partido": juego["texto"],
                                     "mercado": "Totales",
                                     "seleccion": "Over 8.5 Carreras",
                                     "probabilidad": prob_tot,
-                                    "razon": f"Altas probabilidades de daño ofensivo temprano."
-                                })
-                            elif total_quirurgico < 7.4 and stats_v['ip'] > 25 and stats_l['ip'] > 25:
-                                prob_tot = min(round(55 + (7.4 - total_quirurgico) * 6, 1), 82.0)
-                                picks_ia_encontrados.append({
-                                    "partido": juego["texto"],
-                                    "mercado": "Totales",
-                                    "seleccion": "Under 8.5 Carreras",
-                                    "probabilidad": prob_tot,
-                                    "razon": f"Duelo de lanzadores estables proyectan baja anotación."
+                                    "razon": f"Ambos lanzadores reciben castigo duro comprobado."
                                 })
 
                             riesgo = stats_v['fip'] + stats_l['fip'] + (stats_v['bb9']*1.2) + (stats_l['bb9']*1.2)
-                            if riesgo < 9.2 and stats_v['ip'] > 25 and stats_l['ip'] > 25:
-                                prob_nrfi = min(round(60 + (9.2 - riesgo) * 5, 1), 87.0)
+                            if riesgo < 8.8 and stats_v['ip'] > 25 and stats_l['ip'] > 25:
+                                prob_nrfi = min(round(65 + (8.8 - riesgo) * 5, 1), 87.0)
                                 picks_ia_encontrados.append({
                                     "partido": juego["texto"],
                                     "mercado": "1ra Entrada",
                                     "seleccion": "NRFI",
                                     "probabilidad": prob_nrfi,
-                                    "razon": "Riesgo moderado a bajo de carreras en el primer rollo."
+                                    "razon": "Riesgo nulo de tráfico en las bases temprano."
                                 })
                 
                 barra_progreso.progress((i + 1) / total_juegos)
@@ -444,7 +435,7 @@ with tab_ia_picks:
             if api_limite_alcanzado:
                 status_texto.empty()
                 barra_progreso.empty()
-                st.error("🚨 **LÍMITE DE API ALCANZADO:** Se te acabaron las 500 consultas mensuales de tu API Key de RapidAPI.")
+                st.error("🚨 **LÍMITE DE API ALCANZADO:** Se te acabaron las 500 consultas mensuales de tu API Key.")
             else:
                 status_texto.text("¡Escaneo completado!")
                 time.sleep(1)
@@ -455,7 +446,7 @@ with tab_ia_picks:
                 st.session_state.picks_ia = picks_ia_encontrados
 
     if 'picks_ia' in st.session_state and st.session_state.picks_ia:
-        st.success(f"¡Se filtraron **{len(st.session_state.picks_ia)} selecciones** con los filtros relajados!")
+        st.success(f"¡Filtro Quirúrgico detectó **{len(st.session_state.picks_ia)} selecciones** rentables!")
         
         for idx, pick in enumerate(st.session_state.picks_ia):
             with st.container(border=True):
@@ -465,13 +456,13 @@ with tab_ia_picks:
                     st.markdown(f"🎯 **{pick.get('mercado', '')}:** `{pick.get('seleccion', '')}`")
                     st.caption(f"💡 *IA:* {pick.get('razon', '')}")
                 with col_p2:
-                    st.metric(label="Confianza IA", value=f"{pick.get('probabilidad', 75.0)}%")
+                    st.metric(label="Confianza", value=f"{pick.get('probabilidad', 75.0)}%")
                 with col_p3:
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("Añadir", key=f"ai_btn_{idx}", use_container_width=True):
                         agregar_al_parlay(pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 75.0))
     elif 'picks_ia' in st.session_state and not st.session_state.picks_ia:
-        st.info("Incluso con los filtros relajados, hoy la cartelera está muy impredecible. Puedes analizar juegos manuales en la Pestaña 1.")
+        st.info("La IA no encontró nada que supere los filtros matemáticos anti-riesgo. Sugerimos guardar tu bankroll hoy.")
 
 # --- 5. BARRA LATERAL: BOLETO DE PARLAY ---
 with st.sidebar:
@@ -495,7 +486,7 @@ with st.sidebar:
         with c_m:
             st.markdown(f"**Momio Justo**\n\n`{multiplicador_justo}`")
             
-        st.caption("💡 *Si Draftea te ofrece un multiplicador mayor a este, tienes valor (+EV).*")
+        st.caption("💡 *Asegúrate de que Draftea te ofrezca un momio similar o mejor.*")
         
         st.divider()
         
