@@ -11,7 +11,7 @@ if 'parlay' not in st.session_state:
     st.session_state.parlay = []
 
 # --- 1. CONFIGURACIÓN DE API ---
-API_KEY = "93cc436e32mshada5a27f9d4edb9p17ace7jsn9deb1657a19d" # <- RECUERDA PONER TU LLAVE NUEVA AQUÍ
+API_KEY = "93cc436e32mshada5a27f9d4edb9p17ace7jsn9deb1657a19d" # <- RECUERDA PONER TU LLAVE AQUÍ
 HEADERS = {
     "X-RapidAPI-Key": API_KEY,
     "X-RapidAPI-Host": "tank01-mlb-live-in-game-real-time-statistics.p.rapidapi.com"
@@ -95,7 +95,6 @@ def obtener_nombre_pitcher(player_id):
 
 @st.cache_data(ttl=3600)
 def obtener_estadisticas_avanzadas(nombre):
-    """Búsqueda optimizada por Nombre y detección de volumen de entradas."""
     if not nombre or nombre.strip() == "" or nombre == "TBA":
         return None, "TBA"
         
@@ -128,11 +127,10 @@ def obtener_estadisticas_avanzadas(nombre):
         hr = float(s.get("HR", "0") or 0)
         bb = float(s.get("BB", "0") or 0)
         
-        # Extraer juegos iniciados para medir su resistencia (Volumen real)
         juegos = float(s.get("GamesStarted", s.get("GS", s.get("gamesStarted", s.get("G", 0)))) or 0)
         avg_ip = round(ip / juegos, 1) if juegos > 0 else 5.0
-        if avg_ip > 7.0: avg_ip = 6.0 # Límite realista
-        if avg_ip < 1.0: avg_ip = 4.0 # Evitar proyecciones de 0
+        if avg_ip > 7.0: avg_ip = 6.0 
+        if avg_ip < 1.0: avg_ip = 4.0 
         
         k9 = round((so / ip) * 9, 2) if ip > 0 else 0.0
         bb9 = round((bb / ip) * 9, 2) if ip > 0 else 0.0
@@ -151,14 +149,14 @@ def obtener_estadisticas_avanzadas(nombre):
             "bb9": bb9,
             "fip": fip_ajustado, 
             "ip": ip,
-            "avg_ip": avg_ip, # NUEVO: Control de entradas reales
+            "avg_ip": avg_ip,
             "sbr": sbr_poder
         }, None
         
     except Exception as e:
         return None, f"❌ Error: {str(e)}"
 
-# --- 3. FUNCIONES DEL BOLETO ---
+# --- 3. FUNCIONES DEL BOLETO Y UI ---
 def agregar_al_parlay(partido, mercado, seleccion, probabilidad):
     st.session_state.parlay.append({
         "id": str(uuid.uuid4()),
@@ -175,6 +173,16 @@ def eliminar_del_parlay(pick_id):
 def limpiar_parlay():
     st.session_state.parlay = []
     st.rerun()
+
+def renderizar_boton_pick(texto_boton, partido, mercado, seleccion, probabilidad, key_id):
+    """Verifica si el pick ya está en el boleto para bloquear el botón y evitar duplicados"""
+    existe = any(p['partido'] == partido and p['mercado'] == mercado and p['seleccion'] == seleccion for p in st.session_state.parlay)
+    
+    if existe:
+        st.button("✅ Añadido", disabled=True, key=f"btn_dis_{key_id}", use_container_width=True)
+    else:
+        if st.button(texto_boton, key=f"btn_add_{key_id}", use_container_width=True):
+            agregar_al_parlay(partido, mercado, seleccion, probabilidad)
 
 # --- 4. INTERFAZ PRINCIPAL ---
 st.title("⚾ AI Felix Picks Analyst — Motor Quirúrgico v2.0")
@@ -254,9 +262,10 @@ with tab_analizador:
             if 'v' in st.session_state and 'l' in st.session_state:
                 v = st.session_state.v
                 l = st.session_state.l
+                game_id = datos_juego['id']
                 
                 m1, m2, m3, m4 = st.columns(4)
-                with m1: st.caption(f"**IP/Start:** {v['avg_ip']} vs {l['avg_ip']}") # MOSTRANDO PROMEDIO DE ENTRADAS
+                with m1: st.caption(f"**IP/Start:** {v['avg_ip']} vs {l['avg_ip']}")
                 with m2: st.caption(f"**FIP:** {v['fip']:.2f} vs {l['fip']:.2f}")
                 with m3: st.caption(f"**K/9:** {v['k9']} vs {l['k9']}")
                 with m4: st.caption(f"**BB/9:** {v['bb9']} vs {l['bb9']}")
@@ -269,23 +278,19 @@ with tab_analizador:
                     with st.container(border=True):
                         st.markdown("**🏆 Ganador (ML)**")
                         
-                        # Filtro SBR Estricto Puro (0.7) sin bonos artificiales
                         diff_poder = v['sbr'] - l['sbr']
                         
                         if diff_poder > 0.7:
                             prob_v = min(round(50 + diff_poder * 12, 1), 88.0)
-                            if st.button(f"Gana {away_team} ({prob_v}%)", key="ml_v", use_container_width=True): 
-                                agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {away_team}", prob_v)
+                            renderizar_boton_pick(f"Gana {away_team} ({prob_v}%)", datos_juego['texto'], "Moneyline", f"Gana {away_team}", prob_v, f"ml_v_{game_id}")
                         elif diff_poder < -0.7:
                             prob_l = min(round(50 + abs(diff_poder) * 12, 1), 88.0)
-                            if st.button(f"Gana {home_team} ({prob_l}%)", key="ml_l", use_container_width=True): 
-                                agregar_al_parlay(datos_juego['texto'], "Moneyline", f"Gana {home_team}", prob_l)
+                            renderizar_boton_pick(f"Gana {home_team} ({prob_l}%)", datos_juego['texto'], "Moneyline", f"Gana {home_team}", prob_l, f"ml_l_{game_id}")
                         else:
                             st.caption("⚠️ Riesgo ofensivo / Empate técnico (Evitar ML)")
 
                     with st.container(border=True):
                         st.markdown("**🎯 Ponches (K's)**")
-                        # PROYECCIÓN BASADA EN SUS ENTRADAS REALES, NO EN 5.5 INVENTADAS
                         proj_v = round((v['k9'] / 9) * v['avg_ip'], 1)
                         proj_l = round((l['k9'] / 9) * l['avg_ip'], 1)
                         
@@ -294,10 +299,11 @@ with tab_analizador:
                         prob_kv = min(round(50 + max(0, v['k9'] - 8.5) * 4 + max(0, v['avg_ip'] - 4.5) * 3, 1), 85.0)
                         prob_kl = min(round(50 + max(0, l['k9'] - 8.5) * 4 + max(0, l['avg_ip'] - 4.5) * 3, 1), 85.0)
                         
-                        if st.button(f"{v['nombre'].split()[-1]} Over {max(2.5, int(proj_v)-0.5)} K's ({prob_kv}%)", key="kv", use_container_width=True): 
-                            agregar_al_parlay(datos_juego['texto'], "Ponches", f"{v['nombre']} Over {max(2.5, int(proj_v)-0.5)}", prob_kv)
-                        if st.button(f"{l['nombre'].split()[-1]} Over {max(2.5, int(proj_l)-0.5)} K's ({prob_kl}%)", key="kl", use_container_width=True): 
-                            agregar_al_parlay(datos_juego['texto'], "Ponches", f"{l['nombre']} Over {max(2.5, int(proj_l)-0.5)}", prob_kl)
+                        sel_v = f"{v['nombre'].split()[-1]} Over {max(2.5, int(proj_v)-0.5)}"
+                        sel_l = f"{l['nombre'].split()[-1]} Over {max(2.5, int(proj_l)-0.5)}"
+                        
+                        renderizar_boton_pick(f"{sel_v} K's ({prob_kv}%)", datos_juego['texto'], "Ponches", sel_v, prob_kv, f"kv_{game_id}")
+                        renderizar_boton_pick(f"{sel_l} K's ({prob_kl}%)", datos_juego['texto'], "Ponches", sel_l, prob_kl, f"kl_{game_id}")
 
                 with col_m2:
                     with st.container(border=True):
@@ -306,12 +312,10 @@ with tab_analizador:
                         
                         if riesgo_quirurgico < 9.0:
                             prob_nrfi = min(round(50 + (9.0 - riesgo_quirurgico) * 6, 1), 87.0)
-                            if st.button(f"Añadir NRFI ({prob_nrfi}%)", key="nrfi", use_container_width=True): 
-                                agregar_al_parlay(datos_juego['texto'], "1ra Entrada", "NRFI", prob_nrfi)
+                            renderizar_boton_pick(f"Añadir NRFI ({prob_nrfi}%)", datos_juego['texto'], "1ra Entrada", "NRFI", prob_nrfi, f"nrfi_{game_id}")
                         else:
                             prob_yrfi = min(round(50 + (riesgo_quirurgico - 9.0) * 6, 1), 87.0)
-                            if st.button(f"Añadir YRFI ({prob_yrfi}%)", key="yrfi", use_container_width=True): 
-                                agregar_al_parlay(datos_juego['texto'], "1ra Entrada", "YRFI", prob_yrfi)
+                            renderizar_boton_pick(f"Añadir YRFI ({prob_yrfi}%)", datos_juego['texto'], "1ra Entrada", "YRFI", prob_yrfi, f"yrfi_{game_id}")
 
                     with st.container(border=True):
                         st.markdown("**📈 Carreras Totales**")
@@ -320,17 +324,15 @@ with tab_analizador:
                         
                         if total_quirurgico > 9.5:
                             prob_over = min(round(50 + (total_quirurgico - 9.5) * 6, 1), 82.0)
-                            if st.button(f"Over 8.5 Carreras ({prob_over}%)", key="over", use_container_width=True): 
-                                agregar_al_parlay(datos_juego['texto'], "Totales", "Over 8.5", prob_over)
+                            renderizar_boton_pick(f"Over 8.5 Carreras ({prob_over}%)", datos_juego['texto'], "Totales", "Over 8.5", prob_over, f"over_{game_id}")
                         elif total_quirurgico < 7.5:
                             prob_under = min(round(50 + (7.5 - total_quirurgico) * 6, 1), 82.0)
-                            if st.button(f"Under 8.5 Carreras ({prob_under}%)", key="under", use_container_width=True): 
-                                agregar_al_parlay(datos_juego['texto'], "Totales", "Under 8.5", prob_under)
+                            renderizar_boton_pick(f"Under 8.5 Carreras ({prob_under}%)", datos_juego['texto'], "Totales", "Under 8.5", prob_under, f"under_{game_id}")
                         else:
                             st.caption("Línea apretada. Mejor no jugar totales.")
 
 # ==========================================
-# PESTAÑA 2: AI SMART PICKS (ESCÁNER ESTRICTO P. 2.0)
+# PESTAÑA 2: AI SMART PICKS (ESCÁNER ESTRICTO)
 # ==========================================
 with tab_ia_picks:
     st.markdown("### 🤖 Escáner Quirúrgico de la Jornada")
@@ -371,7 +373,6 @@ with tab_ia_picks:
                         if stats_v and stats_l:
                             diff = stats_v['sbr'] - stats_l['sbr']
                             
-                            # Filtro SBR Sólido a 0.7 (Elimina volados)
                             if abs(diff) > 0.7:
                                 fav_team = juego['away'] if diff > 0 else juego['home']
                                 prob = min(round(60 + abs(diff) * 12, 1), 88.0)
@@ -383,7 +384,6 @@ with tab_ia_picks:
                                     "razon": f"SBR puro superior, sin bonos falsos."
                                 })
 
-                            # Ponches exigen K/9 alto Y un volumen de entradas sano (>4.8)
                             if stats_v['ip'] > 25 and stats_v['k9'] >= 9.0 and stats_v['avg_ip'] > 4.8:
                                 proj_v = round((stats_v['k9'] / 9) * stats_v['avg_ip'], 1)
                                 line_v = int(proj_v) - 0.5
@@ -459,8 +459,7 @@ with tab_ia_picks:
                     st.metric(label="Confianza", value=f"{pick.get('probabilidad', 75.0)}%")
                 with col_p3:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("Añadir", key=f"ai_btn_{idx}", use_container_width=True):
-                        agregar_al_parlay(pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 75.0))
+                    renderizar_boton_pick("Añadir", pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 75.0), f"ai_btn_{idx}")
     elif 'picks_ia' in st.session_state and not st.session_state.picks_ia:
         st.info("La IA no encontró nada que supere los filtros matemáticos anti-riesgo. Sugerimos guardar tu bankroll hoy.")
 
