@@ -11,7 +11,7 @@ if 'parlay' not in st.session_state:
     st.session_state.parlay = []
 
 # --- 1. CONFIGURACIÓN DE API ---
-API_KEY = "93cc436e32mshada5a27f9d4edb9p17ace7jsn9deb1657a19d" # <- RECUERDA PONER TU LLAVE AQUÍ
+API_KEY = "abe8de41edmsh6fc305a3060e567p1727f6jsn3ba0c025c6e9" # <- RECUERDA PONER TU LLAVE AQUÍ
 HEADERS = {
     "X-RapidAPI-Key": API_KEY,
     "X-RapidAPI-Host": "tank01-mlb-live-in-game-real-time-statistics.p.rapidapi.com"
