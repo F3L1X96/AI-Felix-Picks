@@ -156,7 +156,64 @@ def obtener_estadisticas_avanzadas(nombre):
     except Exception as e:
         return None, f"❌ Error: {str(e)}"
 
-# --- 3. FUNCIONES DEL BOLETO Y UI ---
+# --- 3. NUEVOS MÓDULOS DE EVALUACIÓN V2.1 ---
+
+def evaluar_f5_quirurgico(sbr_v, whip_v, fip_v, era_v, sbr_l, whip_l, fip_l, era_l, equipo_v, equipo_l):
+    """Evalúa Primeras 5 Entradas con el triple candado de seguridad."""
+    # 1. CANDADO ANTI-EMPATES (Duelo de Ases)
+    if (fip_v < 3.50 and whip_v < 1.20) and (fip_l < 3.50 and whip_l < 1.20):
+        return "🛡️ ALERTA: Duelo de Ases. Posible Empate 0-0 F5.", "Under F5", 70.0
+        
+    diff_poder = sbr_v - sbr_l
+    
+    # Determinar quién es el favorito real según la IA
+    if abs(diff_poder) > 0.7:
+        prob_calculada = min(round(50 + abs(diff_poder) * 12, 1), 88.0)
+        
+        if diff_poder > 0:
+            fav_equipo, fav_whip, fav_fip = equipo_v, whip_v, fip_v
+            riv_era, riv_fip = era_l, fip_l
+        else:
+            fav_equipo, fav_whip, fav_fip = equipo_l, whip_l, fip_l
+            riv_era, riv_fip = era_v, fip_v
+            
+        # 2. CANDADO ANTI-COLAPSOS (El favorito no debe permitir tráfico en bases)
+        if prob_calculada >= 75.0:
+            if fav_whip < 1.25:
+                # 3. CANDADO DE VÍCTIMA COMPROBADA (El rival debe ser débil)
+                if riv_era > 4.50 or riv_fip > 4.50:
+                    return f"🔥 F5 MONEYLINE: Dominio de {fav_equipo} y Rival Débil.", f"Gana {fav_equipo} (1-5 E)", prob_calculada
+                else:
+                    return f"⚠️ ABORTAR F5: El pitcher rival es decente. Riesgo de empate.", None, 0
+            else:
+                return f"⚠️ ABORTAR F5: Tu abridor ({fav_equipo}) permite muchos corredores (WHIP Alto).", None, 0
+                
+    return "❌ SIN VALOR EN F5: Juego cerrado o métricas insuficientes.", None, 0
+
+def evaluar_primera_entrada(fip_v, era_v, fip_l, era_l):
+    """Caza anomalías YRFI/NRFI cruzando ERA y FIP general como proxy."""
+    if fip_v < 3.20 and era_v < 3.50 and fip_l < 3.20 and era_l < 3.50:
+        return "💎 NRFI (NO Anotan en 1ra): Ambos abridores son intocables.", "NRFI", 82.0
+    elif (fip_v > 4.50 or era_v > 5.00) and (fip_l > 4.50 or era_l > 5.00):
+        return "🎯 YRFI (SÍ Anotan en 1ra): Ambos abridores reciben castigo duro.", "YRFI", 78.0
+    return "Paso", None, 0
+
+def evaluar_ponches_draftea(k9, avg_ip, nombre):
+    """Calcula automáticamente el colchón matemático para los ponches."""
+    if k9 < 8.0 or avg_ip < 4.0:
+        return "❌ Volumen insuficiente.", None, 0
+        
+    proyeccion = round((k9 / 9) * avg_ip, 1)
+    linea_base_draftea = int(proyeccion) - 0.5 
+    colchon = proyeccion - linea_base_draftea
+    
+    if colchon >= 1.2:
+        prob = min(round(60 + (k9 - 8.0) * 4 + colchon * 5, 1), 88.0)
+        return f"✅ VALOR EN OVER: Proyecta {proyeccion} K's (Colchón +{round(colchon,2)}).", f"{nombre.split()[-1]} Over {linea_base_draftea}", prob
+    return f"❌ Línea ajustada. Margen de solo {round(colchon, 2)} K's.", None, 0
+
+
+# --- 4. FUNCIONES DEL BOLETO Y UI ---
 def agregar_al_parlay(partido, mercado, seleccion, probabilidad):
     st.session_state.parlay.append({
         "id": str(uuid.uuid4()),
@@ -175,17 +232,15 @@ def limpiar_parlay():
     st.rerun()
 
 def renderizar_boton_pick(texto_boton, partido, mercado, seleccion, probabilidad, key_id):
-    """Verifica si el pick ya está en el boleto para bloquear el botón y evitar duplicados"""
     existe = any(p['partido'] == partido and p['mercado'] == mercado and p['seleccion'] == seleccion for p in st.session_state.parlay)
-    
     if existe:
         st.button("✅ Añadido", disabled=True, key=f"btn_dis_{key_id}", use_container_width=True)
     else:
         if st.button(texto_boton, key=f"btn_add_{key_id}", use_container_width=True):
             agregar_al_parlay(partido, mercado, seleccion, probabilidad)
 
-# --- 4. INTERFAZ PRINCIPAL ---
-st.title("⚾ AI Felix Picks Analyst — Motor Quirúrgico v2.0")
+# --- 5. INTERFAZ PRINCIPAL ---
+st.title("⚾ AI Felix Picks Analyst — Motor Quirúrgico v2.1")
 
 tab_analizador, tab_ia_picks = st.tabs(["🏟️ Analizador por Partido", "🤖 AI Smart Picks (Filtro Strict)"])
 
@@ -218,6 +273,7 @@ with tab_analizador:
             away_team = datos_juego["away"]
             home_team = datos_juego["home"]
             game_time = datos_juego["time"]
+            game_id = datos_juego['id']
             
             logo_away = f"https://a.espncdn.com/i/teamlogos/mlb/500/{away_team.lower()}.png"
             logo_home = f"https://a.espncdn.com/i/teamlogos/mlb/500/{home_team.lower()}.png"
@@ -262,7 +318,6 @@ with tab_analizador:
             if 'v' in st.session_state and 'l' in st.session_state:
                 v = st.session_state.v
                 l = st.session_state.l
-                game_id = datos_juego['id']
                 
                 m1, m2, m3, m4 = st.columns(4)
                 with m1: st.caption(f"**IP/Start:** {v['avg_ip']} vs {l['avg_ip']}")
@@ -274,49 +329,44 @@ with tab_analizador:
 
                 col_m1, col_m2 = st.columns(2)
                 
+                # --- F5 MONEYLINE ---
                 with col_m1:
                     with st.container(border=True):
-                        st.markdown("**🏆 Ganador (ML)**")
-                        
-                        diff_poder = v['sbr'] - l['sbr']
-                        
-                        if diff_poder > 0.7:
-                            prob_v = min(round(50 + diff_poder * 12, 1), 88.0)
-                            renderizar_boton_pick(f"Gana {away_team} ({prob_v}%)", datos_juego['texto'], "Moneyline", f"Gana {away_team}", prob_v, f"ml_v_{game_id}")
-                        elif diff_poder < -0.7:
-                            prob_l = min(round(50 + abs(diff_poder) * 12, 1), 88.0)
-                            renderizar_boton_pick(f"Gana {home_team} ({prob_l}%)", datos_juego['texto'], "Moneyline", f"Gana {home_team}", prob_l, f"ml_l_{game_id}")
-                        else:
-                            st.caption("⚠️ Riesgo ofensivo / Empate técnico (Evitar ML)")
+                        st.markdown("**🏆 F5 (Primeras 5 Entradas)**")
+                        razon_f5, seleccion_f5, prob_f5 = evaluar_f5_quirurgico(
+                            v['sbr'], v['whip'], v['fip'], v['era'], 
+                            l['sbr'], l['whip'], l['fip'], l['era'], 
+                            away_team, home_team
+                        )
+                        st.caption(f"💡 {razon_f5}")
+                        if seleccion_f5:
+                            renderizar_boton_pick(f"{seleccion_f5} ({prob_f5}%)", datos_juego['texto'], "F5 Moneyline", seleccion_f5, prob_f5, f"f5_{game_id}")
 
+                # --- PONCHES ---
                     with st.container(border=True):
                         st.markdown("**🎯 Ponches (K's)**")
-                        proj_v = round((v['k9'] / 9) * v['avg_ip'], 1)
-                        proj_l = round((l['k9'] / 9) * l['avg_ip'], 1)
+                        razon_kv, sel_kv, prob_kv = evaluar_ponches_draftea(v['k9'], v['avg_ip'], v['nombre'])
+                        razon_kl, sel_kl, prob_kl = evaluar_ponches_draftea(l['k9'], l['avg_ip'], l['nombre'])
                         
-                        st.caption(f"📈 Proyección real IA: **{proj_v}** K's vs **{proj_l}** K's")
-                        
-                        prob_kv = min(round(50 + max(0, v['k9'] - 8.5) * 4 + max(0, v['avg_ip'] - 4.5) * 3, 1), 85.0)
-                        prob_kl = min(round(50 + max(0, l['k9'] - 8.5) * 4 + max(0, l['avg_ip'] - 4.5) * 3, 1), 85.0)
-                        
-                        sel_v = f"{v['nombre'].split()[-1]} Over {max(2.5, int(proj_v)-0.5)}"
-                        sel_l = f"{l['nombre'].split()[-1]} Over {max(2.5, int(proj_l)-0.5)}"
-                        
-                        renderizar_boton_pick(f"{sel_v} K's ({prob_kv}%)", datos_juego['texto'], "Ponches", sel_v, prob_kv, f"kv_{game_id}")
-                        renderizar_boton_pick(f"{sel_l} K's ({prob_kl}%)", datos_juego['texto'], "Ponches", sel_l, prob_kl, f"kl_{game_id}")
+                        st.caption(f"VISITA: {razon_kv}")
+                        if sel_kv:
+                            renderizar_boton_pick(f"{sel_kv} K's ({prob_kv}%)", datos_juego['texto'], "Ponches", sel_kv, prob_kv, f"kv_{game_id}")
+                            
+                        st.caption(f"LOCAL: {razon_kl}")
+                        if sel_kl:
+                            renderizar_boton_pick(f"{sel_kl} K's ({prob_kl}%)", datos_juego['texto'], "Ponches", sel_kl, prob_kl, f"kl_{game_id}")
 
+                # --- 1RA ENTRADA ---
                 with col_m2:
                     with st.container(border=True):
-                        st.markdown("**🔥 1ra Entrada**")
-                        riesgo_quirurgico = v['fip'] + l['fip'] + (v['bb9']*1.2) + (l['bb9']*1.2)
+                        st.markdown("**🔥 1ra Entrada (YRFI/NRFI)**")
+                        razon_1ra, sel_1ra, prob_1ra = evaluar_primera_entrada(v['fip'], v['era'], l['fip'], l['era'])
                         
-                        if riesgo_quirurgico < 9.0:
-                            prob_nrfi = min(round(50 + (9.0 - riesgo_quirurgico) * 6, 1), 87.0)
-                            renderizar_boton_pick(f"Añadir NRFI ({prob_nrfi}%)", datos_juego['texto'], "1ra Entrada", "NRFI", prob_nrfi, f"nrfi_{game_id}")
-                        else:
-                            prob_yrfi = min(round(50 + (riesgo_quirurgico - 9.0) * 6, 1), 87.0)
-                            renderizar_boton_pick(f"Añadir YRFI ({prob_yrfi}%)", datos_juego['texto'], "1ra Entrada", "YRFI", prob_yrfi, f"yrfi_{game_id}")
+                        st.caption(f"💡 {razon_1ra}")
+                        if sel_1ra:
+                            renderizar_boton_pick(f"Añadir {sel_1ra} ({prob_1ra}%)", datos_juego['texto'], "1ra Entrada", sel_1ra, prob_1ra, f"1ra_{game_id}")
 
+                # --- TOTALES ---
                     with st.container(border=True):
                         st.markdown("**📈 Carreras Totales**")
                         total_quirurgico = (v['fip'] + l['fip']) * 1.15
@@ -335,8 +385,8 @@ with tab_analizador:
 # PESTAÑA 2: AI SMART PICKS (ESCÁNER ESTRICTO)
 # ==========================================
 with tab_ia_picks:
-    st.markdown("### 🤖 Escáner Quirúrgico de la Jornada")
-    st.markdown("Filtro blindado: Mide volumen de pitcheo real, elimina falsos favoritos de mercado y castiga lanzadores limitados.")
+    st.markdown("### 🤖 Escáner Quirúrgico de la Jornada (v2.1)")
+    st.markdown("Nuevos candados activos: Protección Anti-Empates F5, Colchón Automático de K's y Cazador de 1ra Entrada.")
     
     if st.button("⚡ Ejecutar Escáner Seguro", type="primary"):
         if not juegos_hoy:
@@ -371,63 +421,42 @@ with tab_ia_picks:
                             break
                             
                         if stats_v and stats_l:
-                            diff = stats_v['sbr'] - stats_l['sbr']
-                            
-                            if abs(diff) > 0.7:
-                                fav_team = juego['away'] if diff > 0 else juego['home']
-                                prob = min(round(60 + abs(diff) * 12, 1), 88.0)
+                            # ESCANEO F5 MONEYLINE V2.1
+                            razon_f5, sel_f5, prob_f5 = evaluar_f5_quirurgico(
+                                stats_v['sbr'], stats_v['whip'], stats_v['fip'], stats_v['era'],
+                                stats_l['sbr'], stats_l['whip'], stats_l['fip'], stats_l['era'],
+                                juego['away'], juego['home']
+                            )
+                            if sel_f5:
                                 picks_ia_encontrados.append({
                                     "partido": juego["texto"],
-                                    "mercado": "Moneyline",
-                                    "seleccion": f"Gana {fav_team}",
-                                    "probabilidad": prob,
-                                    "razon": f"SBR puro superior, sin bonos falsos."
+                                    "mercado": "F5 Moneyline",
+                                    "seleccion": sel_f5,
+                                    "probabilidad": prob_f5,
+                                    "razon": razon_f5
                                 })
 
-                            if stats_v['ip'] > 25 and stats_v['k9'] >= 9.0 and stats_v['avg_ip'] > 4.8:
-                                proj_v = round((stats_v['k9'] / 9) * stats_v['avg_ip'], 1)
-                                line_v = int(proj_v) - 0.5
-                                prob_kv = min(round(60 + (stats_v['k9'] - 9.0) * 4, 1), 88.0)
-                                picks_ia_encontrados.append({
-                                    "partido": juego["texto"],
-                                    "mercado": "Ponches",
-                                    "seleccion": f"{stats_v['nombre'].split()[-1]} Over {line_v}",
-                                    "probabilidad": prob_kv,
-                                    "razon": f"K/9 Élite + Volumen Garantizado (Proyección: {proj_v} K's)."
-                                })
+                            # ESCANEO PONCHES AUTOMÁTICO V2.1
+                            for stats in [stats_v, stats_l]:
+                                razon_k, sel_k, prob_k = evaluar_ponches_draftea(stats['k9'], stats['avg_ip'], stats['nombre'])
+                                if sel_k:
+                                    picks_ia_encontrados.append({
+                                        "partido": juego["texto"],
+                                        "mercado": "Ponches",
+                                        "seleccion": sel_k,
+                                        "probabilidad": prob_k,
+                                        "razon": razon_k
+                                    })
 
-                            if stats_l['ip'] > 25 and stats_l['k9'] >= 9.0 and stats_l['avg_ip'] > 4.8:
-                                proj_l = round((stats_l['k9'] / 9) * stats_l['avg_ip'], 1)
-                                line_l = int(proj_l) - 0.5
-                                prob_kl = min(round(60 + (stats_l['k9'] - 9.0) * 4, 1), 88.0)
-                                picks_ia_encontrados.append({
-                                    "partido": juego["texto"],
-                                    "mercado": "Ponches",
-                                    "seleccion": f"{stats_l['nombre'].split()[-1]} Over {line_l}",
-                                    "probabilidad": prob_kl,
-                                    "razon": f"K/9 Élite + Volumen Garantizado (Proyección: {proj_l} K's)."
-                                })
-
-                            total_quirurgico = (stats_v['fip'] + stats_l['fip']) * 1.15
-                            if total_quirurgico > 9.5:
-                                prob_tot = min(round(60 + (total_quirurgico - 9.5) * 5, 1), 82.0)
-                                picks_ia_encontrados.append({
-                                    "partido": juego["texto"],
-                                    "mercado": "Totales",
-                                    "seleccion": "Over 8.5 Carreras",
-                                    "probabilidad": prob_tot,
-                                    "razon": f"Ambos lanzadores reciben castigo duro comprobado."
-                                })
-
-                            riesgo = stats_v['fip'] + stats_l['fip'] + (stats_v['bb9']*1.2) + (stats_l['bb9']*1.2)
-                            if riesgo < 8.8 and stats_v['ip'] > 25 and stats_l['ip'] > 25:
-                                prob_nrfi = min(round(65 + (8.8 - riesgo) * 5, 1), 87.0)
+                            # ESCANEO 1RA ENTRADA V2.1
+                            razon_1ra, sel_1ra, prob_1ra = evaluar_primera_entrada(stats_v['fip'], stats_v['era'], stats_l['fip'], stats_l['era'])
+                            if sel_1ra:
                                 picks_ia_encontrados.append({
                                     "partido": juego["texto"],
                                     "mercado": "1ra Entrada",
-                                    "seleccion": "NRFI",
-                                    "probabilidad": prob_nrfi,
-                                    "razon": "Riesgo nulo de tráfico en las bases temprano."
+                                    "seleccion": sel_1ra,
+                                    "probabilidad": prob_1ra,
+                                    "razon": razon_1ra
                                 })
                 
                 barra_progreso.progress((i + 1) / total_juegos)
@@ -435,7 +464,7 @@ with tab_ia_picks:
             if api_limite_alcanzado:
                 status_texto.empty()
                 barra_progreso.empty()
-                st.error("🚨 **LÍMITE DE API ALCANZADO:** Se te acabaron las 500 consultas mensuales de tu API Key.")
+                st.error("🚨 **LÍMITE DE API ALCANZADO:** Se te acabaron las consultas de tu API Key.")
             else:
                 status_texto.text("¡Escaneo completado!")
                 time.sleep(1)
@@ -461,9 +490,9 @@ with tab_ia_picks:
                     st.markdown("<br>", unsafe_allow_html=True)
                     renderizar_boton_pick("Añadir", pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 75.0), f"ai_btn_{idx}")
     elif 'picks_ia' in st.session_state and not st.session_state.picks_ia:
-        st.info("La IA no encontró nada que supere los filtros matemáticos anti-riesgo. Sugerimos guardar tu bankroll hoy.")
+        st.info("La IA no encontró nada que supere los filtros matemáticos anti-riesgo. Guardar bankroll.")
 
-# --- 5. BARRA LATERAL: BOLETO DE PARLAY ---
+# --- 6. BARRA LATERAL: BOLETO DE PARLAY ---
 with st.sidebar:
     st.markdown("### 🎫 MI ENTRADA")
     
