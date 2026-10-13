@@ -137,6 +137,7 @@ def obtener_partidos_futbol_hoy():
     if API_KEY_FUTBOL == "" or API_KEY_FUTBOL == "TU_API_KEY_DE_FUTBOL_AQUI":
         return []
     try:
+        # 🚨 CORRECCIÓN: Forzamos la fecha exacta del día actual usando la zona horaria UTC-6
         hoy = datetime.now(tz_centro).strftime('%Y-%m-%d')
         url = "https://v3.football.api-sports.io/fixtures"
         response = requests.get(url, headers=HEADERS_FUTBOL, params={"date": hoy}, timeout=10)
