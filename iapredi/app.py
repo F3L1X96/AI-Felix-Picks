@@ -178,25 +178,23 @@ def evaluar_futbol_quirurgico(equipo_v, equipo_l):
     xg_total = round((xg_ataque_v + xg_ataque_l) / 2 + 0.3, 2)
     prob_btts = round(min(50 + (xg_ataque_v + xg_ataque_l) * 12, 85.0), 1)
     
-    recomendaciones = []
-    
     # 1. Filtro Ambos Anotan (BTTS)
     if xg_ataque_v > 1.20 and xg_ataque_l > 1.30:
-        recomendaciones.pages = recomendativas = {
+        recomendacion = {
             "mercado": "Ambos Anotan (BTTS)",
             "seleccion": "Sí (BTTS)",
             "probabilidad": prob_btts,
             "razon": f"💎 Alto poder ofensivo cruzado. xG proyectado: {xg_total} goles."
         }
     else:
-        recomendaciones = {
+        recomendacion = {
             "mercado": "Goles Totales",
             "seleccion": "Under 3.5 Goles",
             "probabilidad": 72.0,
             "razon": "🛡️ Tendencia a partido cerrado o defensivo."
         }
         
-    return xg_total, recomendaciones
+    return xg_total, recomendacion
 
 
 # --- UTILIDADES DE BOLETO ---
