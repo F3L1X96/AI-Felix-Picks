@@ -130,7 +130,7 @@ def evaluar_ponches_draftea(k9, avg_ip, nombre):
 
 
 # ==========================================
-# FUNCIONES: MOTOR FÚTBOL QUIRÚRGICO (V1.0)
+# FUNCIONES: MOTOR FÚTBOL MULTIMERCADO (V2.0)
 # ==========================================
 @st.cache_data(ttl=3600)
 def obtener_partidos_futbol_hoy():
@@ -165,36 +165,48 @@ def obtener_partidos_futbol_hoy():
     except Exception as e:
         return []
 
-def evaluar_futbol_quirurgico(equipo_v, equipo_l):
+def evaluar_futbol_multimercado(equipo_v, equipo_l):
     """
-    Motor matemático de Fútbol basado en simulación de Goles Esperados (xG).
-    Cruza métricas de ataque y defensa para detectar el 'colchón' de goles.
+    Motor analítico extendido para Fútbol: Arroja opciones de Moneyline, BTTS y Tiros de Esquina (Corners).
     """
-    # Simulación analítica basada en tendencias estándar de ligas principales para el prototipo
-    xg_ataque_v, xg_defensa_v = 1.45, 1.10
-    xg_ataque_l, xg_defensa_l = 1.65, 0.95
+    # Simulación de métricas cruzadas de rendimiento (xG y Promedio de Saques de Esquina)
+    xg_v, xg_l = 1.45, 1.65
+    corners_v, corners_l = 5.2, 5.8
     
-    # Cálculo de Goles Esperados Combinados
-    xg_total = round((xg_ataque_v + xg_ataque_l) / 2 + 0.3, 2)
-    prob_btts = round(min(50 + (xg_ataque_v + xg_ataque_l) * 12, 85.0), 1)
+    total_xg = round((xg_v + xg_l) * 0.95, 2)
+    total_corners = round(corners_v + corners_l, 1)
     
-    # 1. Filtro Ambos Anotan (BTTS)
-    if xg_ataque_v > 1.20 and xg_ataque_l > 1.30:
-        recomendacion = {
-            "mercado": "Ambos Anotan (BTTS)",
-            "seleccion": "Sí (BTTS)",
-            "probabilidad": prob_btts,
-            "razon": f"💎 Alto poder ofensivo cruzado. xG proyectado: {xg_total} goles."
-        }
+    # 1. Análisis Moneyline (Favorito por xG)
+    if xg_l > xg_v + 0.3:
+        ml_sel = f"Gana {equipo_l} (Local)"
+        ml_prob = 74.0
+        ml_razon = f"📊 Superioridad local clara en xG ({xg_l} vs {xg_v})."
+    elif xg_v > xg_l + 0.3:
+        ml_sel = f"Gana {equipo_v} (Visita)"
+        ml_prob = 71.0
+        ml_razon = f"📊 Visitante con pegada superior en ofensiva."
     else:
-        recomendacion = {
-            "mercado": "Goles Totales",
-            "seleccion": "Under 3.5 Goles",
-            "probabilidad": 72.0,
-            "razon": "🛡️ Tendencia a partido cerrado o defensivo."
-        }
-        
-    return xg_total, recomendacion
+        ml_sel = "Doble Oportunidad (Empate o Visita)"
+        ml_prob = 68.0
+        ml_razon = "⚖️ Duelo sumamente cerrado. Alta probabilidad de paridad."
+
+    # 2. Análisis Ambos Anotan (BTTS)
+    btts_sel = "Sí (BTTS)" if (xg_v > 1.2 and xg_l > 1.2) else "No (BTTS)"
+    btts_prob = 82.0 if btts_sel == "Sí (BTTS)" else 75.0
+    btts_razon = "💎 Ambos equipos generan volumen constante de ocasiones de gol." if btts_sel == "Sí (BTTS)" else "🛡️ Al menos una defensa neutraliza el ataque rival."
+
+    # 3. Análisis Tiros de Esquina (Corners Over)
+    corner_line = 8.5 if total_corners > 10.0 else 7.5
+    corner_sel = f"Over {corner_line} Tiros de Esquina"
+    corner_prob = 79.0
+    corner_corner_razon = f"🚩 Dinámica de bandas activa. Proyección estimada: {total_corners} corners."
+
+    return {
+        "xg": total_xg,
+        "moneyline": {"sel": ml_sel, "prob": ml_prob, "razon": ml_razon},
+        "btts": {"sel": btts_sel, "prob": btts_prob, "razon": btts_razon},
+        "corners": {"sel": corner_sel, "prob": corner_prob, "razon": corner_corner_razon}
+    }
 
 
 # --- UTILIDADES DE BOLETO ---
@@ -243,7 +255,7 @@ if st.session_state.deporte_seleccionado is None:
         with st.container(border=True):
             st.markdown("<h1 style='text-align: center; font-size: 80px;'>⚽</h1>", unsafe_allow_html=True)
             st.markdown("<h2 style='text-align: center;'>Motor Fútbol (Beta)</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; color: #888;'>Expected Goals (xG), Ambos Anotan, y Tiros a Puerta.</p>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #888;'>Expected Goals (xG), Moneyline y Tiros de Esquina.</p>", unsafe_allow_html=True)
             if st.button("INICIAR ESCÁNER FÚTBOL", use_container_width=True, type="secondary"):
                 st.session_state.deporte_seleccionado = "FUTBOL"
                 st.rerun() 
@@ -333,30 +345,15 @@ elif st.session_state.deporte_seleccionado == "MLB":
         if st.button("⚡ Ejecutar Escáner Seguro", type="primary"):
             st.info("Escáner automático listo para operar.")
 
-    with st.sidebar:
-        st.markdown("### 🎫 MI ENTRADA (MLB)")
-        if not st.session_state.parlay:
-            st.caption("Aún no tienes selecciones.")
-        else:
-            prob_dec = 1.0
-            for p in st.session_state.parlay: prob_dec *= float(p['probabilidad']) / 100.0
-            st.markdown(f"**Probabilidad:** `{prob_dec * 100:.1f}%`")
-            st.divider()
-            for p in st.session_state.parlay:
-                c1, c2 = st.columns([3, 1])
-                with c1: st.markdown(f"• **{p['mercado']}:** {p['seleccion']}")
-                with c2: st.button("X", key=f"del_{p['id']}", on_click=eliminar_del_parlay, args=(p['id'],))
-            if st.button("🗑️ Limpiar", use_container_width=True): limpiar_parlay()
-
 # ==========================================
-# MÓDULO 2: FÚTBOL (CON FILTRO QUIRÚRGICO xG)
+# MÓDULO 2: FÚTBOL (MULTIMERCADO Y BARRA LATERAL)
 # ==========================================
 elif st.session_state.deporte_seleccionado == "FUTBOL":
     if st.button("⬅️ Volver al Centro de Mandos"):
         st.session_state.deporte_seleccionado = None
         st.rerun()
         
-    st.title("⚽ Escáner Quirúrgico Fútbol v1.0")
+    st.title("⚽ Escáner Quirúrgico Fútbol v2.0")
     
     partidos_futbol = obtener_partidos_futbol_hoy()
     
@@ -382,22 +379,78 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                 
             st.divider()
             
-            # Ejecutar modelo xG
-            xg_est, pick_fut = evaluar_futbol_quirurgico(datos_fut['away'], datos_fut['home'])
+            # Ejecutar motor multimercado
+            analisis = evaluar_futbol_multimercado(datos_fut['away'], datos_fut['home'])
             
-            col_m1, col_m2 = st.columns(2)
+            st.metric(label="📊 xG Proyectado (Goles Totales)", value=f"{analisis['xg']}")
+            st.divider()
+            
+            # Pestañas o columnas para los mercados
+            col_m1, col_m2, col_m3 = st.columns(3)
+            
             with col_m1:
-                st.metric(label="📊 xG Proyectado (Goles Totales)", value=f"{xg_est}")
-            with col_m2:
-                st.metric(label="🎯 Confianza del Filtro", value=f"{pick_fut['probabilidad']}%")
-                
-            st.markdown(f"💡 **Dictamen de la IA:** {pick_fut['razon']}")
+                with st.container(border=True):
+                    st.markdown("**🏆 Moneyline (Ganador)**")
+                    st.caption(analisis['moneyline']['razon'])
+                    renderizar_boton_pick(
+                        f"Añadir {analisis['moneyline']['sel']} ({analisis['moneyline']['prob']}%)",
+                        datos_fut['texto'], "Moneyline Fútbol", analisis['moneyline']['sel'], analisis['moneyline']['prob'], f"ml_{datos_fut['id']}"
+                    )
             
-            renderizar_boton_pick(
-                f"Añadir {pick_fut['seleccion']} ({pick_fut['probabilidad']}%)", 
-                datos_fut['texto'], 
-                pick_fut['mercado'], 
-                pick_fut['seleccion'], 
-                pick_fut['probabilidad'], 
-                f"fut_{datos_fut['id']}"
-            )
+            with col_m2:
+                with st.container(border=True):
+                    st.markdown("**🔥 Ambos Anotan (BTTS)**")
+                    st.caption(analisis['btts']['razon'])
+                    renderizar_boton_pick(
+                        f"Añadir {analisis['btts']['sel']} ({analisis['btts']['prob']}%)",
+                        datos_fut['texto'], "BTTS Fútbol", analisis['btts']['sel'], analisis['btts']['prob'], f"btts_{datos_fut['id']}"
+                    )
+            
+            with col_m3:
+                with st.container(border=True):
+                    st.markdown("**🚩 Tiros de Esquina (Corners)**")
+                    st.caption(analisis['corners']['razon'])
+                    renderizar_boton_pick(
+                        f"Añadir {analisis['corners']['sel']} ({analisis['corners']['prob']}%)",
+                        datos_fut['texto'], "Corners", analisis['corners']['sel'], analisis['corners']['prob'], f"corner_{datos_fut['id']}"
+                    )
+
+
+# ==========================================
+# BARRA LATERAL UNIFICADA (MI ENTRADA)
+# ==========================================
+with st.sidebar:
+    st.markdown("### 🎫 MI ENTRADA MULTIDEPORTE")
+    if not st.session_state.parlay:
+        st.caption("Aún no tienes selecciones en tu boleto.")
+    else:
+        prob_dec = 1.0
+        for p in st.session_state.parlay: 
+            prob_dec *= float(p['probabilidad']) / 100.0
+            
+        prob_porcentaje = prob_dec * 100
+        dec_odds = 1 / prob_dec if prob_dec > 0 else 1.0
+        
+        c_p, c_m = st.columns(2)
+        with c_p: st.markdown(f"**Probabilidad**\n\n`{prob_porcentaje:.1f}%`")
+        with c_m: st.markdown(f"**Momio Justo**\n\n`{dec_odds:.2f}x`")
+        
+        st.divider()
+        
+        parlay_por_partido = defaultdict(list)
+        for pick in st.session_state.parlay:
+            parlay_por_partido[pick['partido']].append(pick)
+            
+        for partido, picks in parlay_por_partido.items():
+            with st.container(border=True):
+                st.markdown(f"📌 **{partido}**")
+                for p in picks:
+                    col_t, col_b = st.columns([75, 25])
+                    with col_t:
+                        st.markdown(f"• **{p['mercado']}:**\n{p['seleccion']} ({p['probabilidad']}%)")
+                    with col_b:
+                        st.button("X", key=f"del_{p['id']}", on_click=eliminar_del_parlay, args=(p['id'],), use_container_width=True)
+        
+        st.divider()
+        if st.button("🗑️ Limpiar Boleto", type="secondary", use_container_width=True):
+            limpiar_parlay()
