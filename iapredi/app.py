@@ -142,6 +142,17 @@ def obtener_partidos_futbol_hoy():
         datos = response.json()
         if "response" not in datos or not datos["response"]: return []
             
+        # 🚨 CANDADO ESTRICTO DE PAÍS + LIGA 🚨
+        ligas_top_nacionales = {
+            ("England", "Premier League"),
+            ("Spain", "La Liga"),
+            ("Italy", "Serie A"),
+            ("Germany", "Bundesliga"),
+            ("France", "Ligue 1"),
+            ("Mexico", "Liga MX")
+        }
+        ligas_top_internacionales = ["UEFA Champions League", "Copa Libertadores", "CONMEBOL Sudamericana", "UEFA Europa League"]
+            
         partidos = []
         for fixture in datos["response"]:
             fid = fixture["fixture"]["id"]
@@ -150,12 +161,8 @@ def obtener_partidos_futbol_hoy():
             equipo_v = fixture["teams"]["away"]["name"]
             equipo_l = fixture["teams"]["home"]["name"]
             
-            # FILTRO ESTRICTO DE LIGAS TOP: Protege de ligas falsas con el mismo nombre
-            es_top = False
-            if liga in ["UEFA Champions League", "Premier League", "La Liga", "Serie A", "Bundesliga", "Liga MX", "Copa Libertadores", "CONMEBOL Sudamericana"]:
-                es_top = True
-            elif liga == "Ligue 1" and pais == "France":  # Solo la de Francia cuenta
-                es_top = True
+            # Verificamos si es liga de élite comprobando que la combinación (País, Liga) sea exacta
+            es_top = (pais, liga) in ligas_top_nacionales or liga in ligas_top_internacionales
                 
             prioridad = 0 if es_top else 1
             hora = datetime.fromtimestamp(fixture["fixture"]["timestamp"], tz=tz_centro).strftime('%H:%M') if fixture["fixture"]["timestamp"] else "HOY"
@@ -386,7 +393,7 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
         st.session_state.deporte_seleccionado = None
         st.rerun()
         
-    st.title("⚽ AI Felix Picks Analyst — Datos Reales Fútbol v3.0")
+    st.title("⚽ AI Felix Picks Analyst — Datos Reales Fútbol v3.1")
     
     tab_analizador_fut, tab_ia_picks_fut = st.tabs(["🏟️ Analizador por Partido (API)", "🤖 AI Smart Picks (Ligas Top)"])
     partidos_futbol = obtener_partidos_futbol_hoy()
