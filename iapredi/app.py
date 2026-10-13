@@ -137,16 +137,20 @@ def obtener_partidos_futbol_hoy():
     if API_KEY_FUTBOL == "" or API_KEY_FUTBOL == "TU_API_KEY_DE_FUTBOL_AQUI":
         return []
     try:
-        # 🚨 CORRECCIÓN: Forzamos la fecha exacta del día actual usando la zona horaria UTC-6
-        hoy = datetime.now(tz_centro).strftime('%Y-%m-%d')
+        hoy_str = datetime.now(tz_centro).strftime('%Y-%m-%d')
         url = "https://v3.football.api-sports.io/fixtures"
-        response = requests.get(url, headers=HEADERS_FUTBOL, params={"date": hoy}, timeout=10)
+        response = requests.get(url, headers=HEADERS_FUTBOL, params={"date": hoy_str}, timeout=10)
         datos = response.json()
         
         if "response" not in datos: return []
             
         partidos = []
         for fixture in datos["response"]:
+            # Validar fecha UTC del partido
+            fixture_date = fixture["fixture"]["date"].split("T")[0]
+            if fixture_date != hoy_str:
+                continue # Descarta partidos que no sean estrictamente de hoy
+                
             fid = fixture["fixture"]["id"]
             liga = fixture["league"]["name"]
             pais = fixture["league"]["country"]
