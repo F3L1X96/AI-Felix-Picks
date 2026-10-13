@@ -130,7 +130,7 @@ def evaluar_ponches_draftea(k9, avg_ip, nombre):
 
 
 # ==========================================
-# FUNCIONES: MOTOR FÚTBOL MULTIMERCADO (V2.1 DINÁMICO)
+# FUNCIONES: MOTOR FÚTBOL (ORDENAMIENTO ESTILO SOFASCORE)
 # ==========================================
 @st.cache_data(ttl=3600)
 def obtener_partidos_futbol_hoy():
@@ -145,6 +145,12 @@ def obtener_partidos_futbol_hoy():
         if "response" not in datos or not datos["response"]: 
             return []
             
+        # Ligas prioritarias (Estilo Sofascore)
+        prioridades_liga = [
+            "UEFA Champions League", "Premier League", "La Liga", 
+            "Serie A", "Bundesliga", "Ligue 1", "Liga MX", "Copa Libertadores"
+        ]
+            
         partidos = []
         for fixture in datos["response"]:
             fid = fixture["fixture"]["id"]
@@ -157,23 +163,28 @@ def obtener_partidos_futbol_hoy():
             timestamp = fixture["fixture"]["timestamp"]
             hora = datetime.fromtimestamp(timestamp, tz=tz_centro).strftime('%H:%M') if timestamp else "HOY"
             
+            # Asignar peso de prioridad (si está en el top, va primero)
+            prioridad = 0 if liga in prioridades_liga else 1
+            
             partidos.append({
-                "id": fid, "liga": f"{pais}: {liga}", "hora": hora,
+                "id": fid, "liga": liga, "pais": pais, "hora": hora,
+                "prioridad": prioridad,
                 "away": equipo_v, "home": equipo_l, "logo_v": logo_v, "logo_l": logo_l,
-                "texto": f"🕒 {hora} | {equipo_v} @ {equipo_l} ({liga})"
+                "texto": f"[{liga}] 🕒 {hora} | {equipo_v} @ {equipo_l}"
             })
+            
+        # Ordenar: Primero por prioridad (0 las tops), luego por nombre de liga
+        partidos.sort(key=lambda x: (x["prioridad"], x["liga"]))
         return partidos
     except Exception as e:
         return []
 
 def evaluar_futbol_multimercado(equipo_v, equipo_l):
     semilla = (sum(ord(c) for c in equipo_v) + sum(ord(c) for c in equipo_l)) % 30
-    
     xg_v = round(1.0 + (semilla % 15) / 10.0, 2)
     xg_l = round(1.1 + ((semilla * 3) % 17) / 10.0, 2)
     corners_v = 4.0 + (semilla % 4)
     corners_l = 4.5 + ((semilla * 2) % 4)
-    
     total_xg = round(xg_v + xg_l, 2)
     total_corners = round(corners_v + corners_l, 1)
     
@@ -344,29 +355,42 @@ elif st.session_state.deporte_seleccionado == "MLB":
             st.info("Escáner automático listo para operar.")
 
 # ==========================================
-# MÓDULO 2: FÚTBOL (MULTIMERCADO Y AI SMART PICKS)
+# MÓDULO 2: FÚTBOL (AGRUPADO POR LIGAS ESTILO SOFASCORE)
 # ==========================================
 elif st.session_state.deporte_seleccionado == "FUTBOL":
     if st.button("⬅️ Volver al Centro de Mandos"):
         st.session_state.deporte_seleccionado = None
         st.rerun()
         
-    st.title("⚽ AI Felix Picks Analyst — Escáner Quirúrgico Fútbol v2.1")
+    st.title("⚽ AI Felix Picks Analyst — Escáner Quirúrgico Fútbol v2.2")
     
-    # 🚨 PESTAÑAS IDÉNTICAS A LA MLB 🚨
     tab_analizador_fut, tab_ia_picks_fut = st.tabs(["🏟️ Analizador por Partido", "🤖 AI Smart Picks (Filtro Strict)"])
-    
     partidos_futbol = obtener_partidos_futbol_hoy()
     
-    # --- PESTAÑA 1: ANALIZADOR INDIVIDUAL ---
+    # --- PESTAÑA 1: ANALIZADOR INDIVIDUAL AGRUPADO ---
     with tab_analizador_fut:
         if not partidos_futbol:
             st.warning("⚠️ No hay partidos oficiales programados para el día de hoy en las ligas principales.")
         else:
-            st.success(f"¡Se detectaron **{len(partidos_futbol)} partidos** de fútbol para hoy!")
+            st.success(f"¡Se detectaron **{len(partidos_futbol)} partidos** organizados por competición!")
             
-            opciones_fut = {p["texto"]: p for p in partidos_futbol}
-            partido_elegido_txt = st.selectbox("Selecciona un encuentro:", options=list(opciones_fut.keys()))
+            # Agrupar partidos por Liga
+            partidos_por_liga = defaultdict(list)
+            for p in partidos_futbol:
+                partidos_por_liga[p['liga']].append(p)
+                
+            # Ordenar las ligas poniendo las de élite primero si están presentes
+            elite_order = ["UEFA Champions League", "Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1", "Liga MX", "Copa Libertadores"]
+            ligas_ordenadas = sorted(partidos_por_liga.keys(), key=lambda x: (0 if x in elite_order else 1, x))
+            
+            # Selector de Liga Estilo Sofascore
+            liga_seleccionada = st.selectbox("🏆 Selecciona una Competición:", options=ligas_ordenadas)
+            
+            # Filtrar partidos de esa liga
+            partidos_de_liga = partidos_por_liga[liga_seleccionada]
+            opciones_fut = {p["texto"]: p for p in partidos_de_liga}
+            
+            partido_elegido_txt = st.selectbox("⚽ Selecciona el Encuentro:", options=list(opciones_fut.keys()))
             datos_fut = opciones_fut[partido_elegido_txt]
             
             with st.container(border=True):
@@ -434,7 +458,6 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                     status.text(f"Analizando {partido['away']} vs {partido['home']}...")
                     res = evaluar_futbol_multimercado(partido['away'], partido['home'])
                     
-                    # Agregar los mejores picks que superen el umbral de confianza
                     for mercado_key in ['moneyline', 'btts', 'corners']:
                         item = res[mercado_key]
                         if item['prob'] >= 72.0:
@@ -456,7 +479,7 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                 st.session_state.picks_futbol_ia = picks_futbol_ia
 
         if 'picks_futbol_ia' in st.session_state and st.session_state.picks_futbol_ia:
-            st.success(f"¡El escáner detectó **{len(st.session_state.picks_ia_futbol if 'picks_ia_futbol' in st.session_state else st.session_state.picks_futbol_ia)} selecciones rentables** para hoy!")
+            st.success(f"¡El escáner detectó **{len(st.session_state.picks_futbol_ia)} selecciones rentables** para hoy!")
             
             for idx, pick in enumerate(st.session_state.picks_futbol_ia):
                 with st.container(border=True):
