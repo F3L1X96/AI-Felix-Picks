@@ -363,7 +363,7 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
     partidos_futbol = obtener_partidos_futbol_hoy()
     
     if not partidos_futbol:
-        st.warning("⚠️ No se encontraron partidos para hoy o tu API Key de Fútbol no está configurada.")
+        st.warning("⚠️ No hay partidos oficiales programados para el día de hoy en las ligas principales. Intenta más tarde o revisa el calendario de la API.")
     else:
         st.success(f"¡Se detectaron **{len(partidos_futbol)} partidos** de fútbol para hoy!")
         
