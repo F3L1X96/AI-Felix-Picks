@@ -270,13 +270,9 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
     p_away = float(preds.get("percent", {}).get("away", "33%").replace("%", ""))
     advice = preds.get("advice", "Sin datos concluyentes").capitalize()
     
-    # 🚨 CORRECCIÓN PARA EQUIPOS FUERTES (Arsenal, Bayern, etc.) 🚨
-    # Un 45% o más en probabilidad de fútbol es dominio total.
-    # Usamos una fórmula para escalar su probabilidad y que el escáner (filtro > 72%) no lo bote.
-    
     if p_home >= 45.0 and (p_home - p_away) >= 10.0:
         ml_sel = f"Victoria Directa: {equipo_l}"
-        ml_prob = min(round(p_home + 30.0, 1), 95.0)  # Escala el 60% real a un 90% para la IA
+        ml_prob = min(round(p_home + 30.0, 1), 95.0)
         ml_razon = f"Claro favorito local (WinRate proyectado real: {p_home}%)."
     elif p_away >= 45.0 and (p_away - p_home) >= 10.0:
         ml_sel = f"Victoria Directa: {equipo_v}"
@@ -288,7 +284,6 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
         ml_prob = min(round(max(p_home, p_away) + p_draw + 10.0, 1), 95.0)
         ml_razon = f"Partido cerrado. Cubrimos el empate con ventaja para {favorito_real}."
 
-    # --- BTTS (AMBOS ANOTAN) ---
     att_h = float(comp.get("att", {}).get("home", "50%").replace("%", ""))
     att_a = float(comp.get("att", {}).get("away", "50%").replace("%", ""))
     def_h = float(comp.get("def", {}).get("home", "50%").replace("%", ""))
@@ -306,16 +301,20 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
         btts_prob = min(round(100 - ((potencial_goles_h + potencial_goles_a) / 2) + 20.0, 1), 95.0)
         btts_razon = "Falta de potencia ofensiva o defensas muy sólidas."
 
-    # --- GOLES / CORNERS ---
-    accion_total = (potencial_goles_h + potencial_goles_a) / 2
-    if accion_total >= 55:
+    # 🚨 CORRECCIÓN PARA EQUIPOS GOLEADORES (Ej: Barcelona, City) 🚨
+    # En vez de promediar, buscamos si hay un MÁXIMO poder ofensivo en la cancha 
+    # o si ambos suman un gran total, lo que asegura goles aunque el rival no ataque.
+    max_ataque = max(potencial_goles_h, potencial_goles_a)
+    suma_ataque = potencial_goles_h + potencial_goles_a
+    
+    if max_ataque >= 62.0 or suma_ataque >= 110.0:
         corner_sel = "Apuesta: Más de 2.5 Goles Totales (o Más de 8.5 Corners)"
-        corner_prob = min(round(accion_total + 25.0, 1), 95.0)
-        corner_razon = "Juego muy dinámico proyectado con llegadas constantes al área."
+        corner_prob = min(round(max_ataque + 25.0, 1), 95.0)
+        corner_razon = "Juego muy dinámico. Hay un poder ofensivo abrumador en la cancha."
     else:
         corner_sel = "Apuesta: Menos de 3.5 Goles Totales (o Menos de 10.5 Corners)"
-        corner_prob = min(round((100 - accion_total) + 25.0, 1), 95.0)
-        corner_razon = "Partido centralizado. Se espera poco tránsito en las áreas."
+        corner_prob = min(round((100 - max_ataque) + 25.0, 1), 95.0)
+        corner_razon = "Partido centralizado. Se espera poco tránsito en las áreas y baja efectividad."
 
     return {
         "advice": advice,
@@ -565,7 +564,6 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                         cp1, cp2, cp3 = st.columns([3, 1.5, 1])
                         with cp1:
                             st.markdown(f"⚽ **{pick.get('partido', '')}**")
-                            # La IA ahora pondrá "Victoria Directa: Arsenal" para los grandes
                             st.markdown(f"🎯 **PICK DIRECTO:** `{pick.get('seleccion', '')}`") 
                             st.caption(f"💡 *Justificación:* {pick.get('razon', '')}")
                         with cp2:
