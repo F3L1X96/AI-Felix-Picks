@@ -142,8 +142,6 @@ def obtener_partidos_futbol_hoy():
         datos = response.json()
         if "response" not in datos or not datos["response"]: return []
             
-        prioridades_liga = ["UEFA Champions League", "Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1", "Liga MX", "Copa Libertadores", "CONMEBOL Sudamericana"]
-            
         partidos = []
         for fixture in datos["response"]:
             fid = fixture["fixture"]["id"]
@@ -152,7 +150,14 @@ def obtener_partidos_futbol_hoy():
             equipo_v = fixture["teams"]["away"]["name"]
             equipo_l = fixture["teams"]["home"]["name"]
             
-            prioridad = 0 if liga in prioridades_liga else 1
+            # FILTRO ESTRICTO DE LIGAS TOP: Protege de ligas falsas con el mismo nombre
+            es_top = False
+            if liga in ["UEFA Champions League", "Premier League", "La Liga", "Serie A", "Bundesliga", "Liga MX", "Copa Libertadores", "CONMEBOL Sudamericana"]:
+                es_top = True
+            elif liga == "Ligue 1" and pais == "France":  # Solo la de Francia cuenta
+                es_top = True
+                
+            prioridad = 0 if es_top else 1
             hora = datetime.fromtimestamp(fixture["fixture"]["timestamp"], tz=tz_centro).strftime('%H:%M') if fixture["fixture"]["timestamp"] else "HOY"
             
             partidos.append({
@@ -187,13 +192,11 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
     preds = datos_api.get("predictions", {})
     comp = datos_api.get("comparison", {})
     
-    # Extraer porcentajes reales de victoria
     p_home = float(preds.get("percent", {}).get("home", "33%").replace("%", ""))
     p_draw = float(preds.get("percent", {}).get("draw", "33%").replace("%", ""))
     p_away = float(preds.get("percent", {}).get("away", "33%").replace("%", ""))
     advice = preds.get("advice", "Sin datos concluyentes").capitalize()
     
-    # 1. Moneyline
     if p_home >= 50.0:
         ml_sel, ml_prob, ml_razon = f"Gana {equipo_l} (L)", p_home, f"Fuerte tendencia local ({p_home}% win rate proyectado)."
     elif p_away >= 50.0:
@@ -204,13 +207,11 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
         ml_prob = min(max_prob + p_draw, 95.0)
         ml_razon = "Partido cerrado. Riesgo alto de empate."
 
-    # 2. BTTS basado en métricas ofensivas/defensivas reales
     att_h = float(comp.get("att", {}).get("home", "50%").replace("%", ""))
     att_a = float(comp.get("att", {}).get("away", "50%").replace("%", ""))
     def_h = float(comp.get("def", {}).get("home", "50%").replace("%", ""))
     def_a = float(comp.get("def", {}).get("away", "50%").replace("%", ""))
     
-    # Promedio de poder ofensivo vs debilidad defensiva rival
     potencial_goles_h = (att_h + (100 - def_a)) / 2
     potencial_goles_a = (att_a + (100 - def_h)) / 2
     
@@ -223,7 +224,6 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
         btts_prob = round(100 - ((potencial_goles_h + potencial_goles_a) / 2), 1)
         btts_razon = "Al menos un equipo carece de potencia ofensiva (o hay una defensa muy sólida)."
 
-    # 3. Goles y Corners
     accion_total = (potencial_goles_h + potencial_goles_a) / 2
     if accion_total >= 55:
         corner_sel = "Over 8.5 Corners / Over 2.5 Goles"
@@ -395,11 +395,15 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
         if not partidos_futbol:
             st.warning("⚠️ No hay partidos oficiales programados para el día de hoy.")
         else:
+            # Agrupamos por País + Liga para evitar confusiones en el dropdown
             partidos_por_liga = defaultdict(list)
-            for p in partidos_futbol: partidos_por_liga[p['liga']].append(p)
+            prioridad_liga = {}
+            for p in partidos_futbol: 
+                nombre_comp = f"{p['pais']}: {p['liga']}"
+                partidos_por_liga[nombre_comp].append(p)
+                prioridad_liga[nombre_comp] = p['prioridad']
                 
-            elite_order = ["UEFA Champions League", "Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1", "Liga MX", "Copa Libertadores"]
-            ligas_ordenadas = sorted(partidos_por_liga.keys(), key=lambda x: (0 if x in elite_order else 1, x))
+            ligas_ordenadas = sorted(partidos_por_liga.keys(), key=lambda x: (prioridad_liga[x], x))
             
             liga_seleccionada = st.selectbox("🏆 Selecciona una Competición:", options=ligas_ordenadas)
             partidos_de_liga = partidos_por_liga[liga_seleccionada]
@@ -421,7 +425,7 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                     
                 st.divider()
                 
-                # BOTÓN DE EXTRACCIÓN (Protege tu límite de API)
+                # BOTÓN DE EXTRACCIÓN
                 if st.button("🚀 Extraer Datos Reales (API)", type="primary", use_container_width=True):
                     with st.spinner("Descargando estadísticas de API-Sports..."):
                         datos_reales = obtener_datos_reales_partido(datos_fut['id'])
@@ -430,7 +434,7 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                         else:
                             st.error("No hay predicciones disponibles para este partido o alcanzaste tu límite de API.")
 
-                # Mostrar Resultados si ya se consultó
+                # MOSTRAR RESULTADOS (Fuera del botón para que no desaparezcan)
                 if f"analisis_{datos_fut['id']}" in st.session_state:
                     analisis = st.session_state[f"analisis_{datos_fut['id']}"]
                     
@@ -469,6 +473,7 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
         st.markdown("### 🤖 Escáner de Ligas Top")
         st.markdown("Para proteger tu límite de API, este escáner solo analizará automáticamente un máximo de **10 partidos** de las ligas principales del mundo.")
         
+        # El botón de escanear solo activa el proceso
         if st.button("⚡ Ejecutar Escáner (Gasta ~10 Consultas API)", type="primary"):
             if not partidos_futbol:
                 st.warning("No hay partidos disponibles.")
@@ -476,7 +481,8 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                 partidos_top = [p for p in partidos_futbol if p['prioridad'] == 0][:10]
                 
                 if not partidos_top:
-                    st.info("Hoy no hay juegos de ligas Top (Champions, Premier, Liga MX, etc). Busca los partidos manualmente en la otra pestaña.")
+                    st.session_state.picks_futbol_ia = []
+                    st.session_state.ya_escaneo_fut = True
                 else:
                     picks_futbol_ia = []
                     barra = st.progress(0)
@@ -504,9 +510,14 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                     barra.empty()
                     
                     picks_futbol_ia.sort(key=lambda x: x['probabilidad'], reverse=True)
+                    
+                    # Guardamos resultados en memoria persistente
                     st.session_state.picks_futbol_ia = picks_futbol_ia
+                    st.session_state.ya_escaneo_fut = True
 
-            if 'picks_futbol_ia' in st.session_state and st.session_state.picks_futbol_ia:
+        # MOSTRAR RESULTADOS (Fuera del botón para que no desaparezcan al recargar/añadir picks)
+        if st.session_state.get("ya_escaneo_fut", False):
+            if st.session_state.picks_futbol_ia:
                 st.success(f"¡El escáner detectó selecciones de alta confianza!")
                 for idx, pick in enumerate(st.session_state.picks_futbol_ia):
                     with st.container(border=True):
@@ -519,8 +530,10 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                             st.metric(label="Confianza", value=f"{pick.get('probabilidad', 75.0)}%")
                         with cp3:
                             st.markdown("<br>", unsafe_allow_html=True)
+                            # Al añadir un pick, la página recarga pero como está fuera del if st.button, no se borrarán
                             renderizar_boton_pick("Añadir", pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 75.0), f"fut_ai_{idx}")
-
+            else:
+                st.info("Hoy no hay juegos de ligas Top (o la IA no encontró selecciones que superen el 72% de confianza).")
 
 # ==========================================
 # BARRA LATERAL UNIFICADA (MI ENTRADA)
