@@ -221,3 +221,8 @@ def agregar_al_parlay(partido, mercado, seleccion, probabilidad):
     st.rerun()
 
 def eliminar_del_parlay(pick_id):
+    st.session_state.parlay = [p for p in st.session_state.parlay if p['id'] != pick_id]
+
+def limpiar_parlay():
+    st.session_state.parlay = []
+    st.rerun()
