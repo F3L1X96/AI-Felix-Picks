@@ -161,7 +161,6 @@ def obtener_partidos_futbol_hoy():
             equipo_v = fixture["teams"]["away"]["name"]
             equipo_l = fixture["teams"]["home"]["name"]
             
-            # Verificamos si es liga de élite comprobando que la combinación (País, Liga) sea exacta
             es_top = (pais, liga) in ligas_top_nacionales or liga in ligas_top_internacionales
                 
             prioridad = 0 if es_top else 1
@@ -179,11 +178,10 @@ def obtener_partidos_futbol_hoy():
 
 @st.cache_data(ttl=3600)
 def obtener_datos_reales_partido(fixture_id):
-    """Extrae las predicciones y estadísticas reales directamente de la API de Fútbol."""
     url = "https://v3.football.api-sports.io/predictions"
     try:
         response = requests.get(url, headers=HEADERS_FUTBOL, params={"fixture": fixture_id}, timeout=10)
-        if response.status_code == 429: return None # Límite API
+        if response.status_code == 429: return None 
         datos = response.json()
         if "response" in datos and len(datos["response"]) > 0:
             return datos["response"][0]
@@ -192,10 +190,6 @@ def obtener_datos_reales_partido(fixture_id):
         return None
 
 def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
-    """
-    Evalúa los mercados basándose puramente en las métricas de rendimiento reales
-    devueltas por el algoritmo de API-Sports (estado de forma, H2H y goles).
-    """
     preds = datos_api.get("predictions", {})
     comp = datos_api.get("comparison", {})
     
@@ -204,16 +198,29 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
     p_away = float(preds.get("percent", {}).get("away", "33%").replace("%", ""))
     advice = preds.get("advice", "Sin datos concluyentes").capitalize()
     
+    # --- ML / DOBLE OPORTUNIDAD EXPLÍCITA ---
     if p_home >= 50.0:
-        ml_sel, ml_prob, ml_razon = f"Gana {equipo_l} (L)", p_home, f"Fuerte tendencia local ({p_home}% win rate proyectado)."
+        ml_sel = f"Victoria Directa: {equipo_l}"
+        ml_prob = p_home
+        ml_razon = f"Fuerte tendencia local ({p_home}% de win rate proyectado)."
     elif p_away >= 50.0:
-        ml_sel, ml_prob, ml_razon = f"Gana {equipo_v} (V)", p_away, f"Fuerte tendencia visitante ({p_away}% win rate proyectado)."
+        ml_sel = f"Victoria Directa: {equipo_v}"
+        ml_prob = p_away
+        ml_razon = f"Fuerte tendencia visitante ({p_away}% de win rate proyectado)."
     else:
-        max_prob = max(p_home, p_away)
-        ml_sel = "Doble Oportunidad (E o Favorito)"
+        # Aquí sacamos el nombre real del favorito para la doble oportunidad
+        if p_home >= p_away:
+            favorito_real = equipo_l
+            max_prob = p_home
+        else:
+            favorito_real = equipo_v
+            max_prob = p_away
+            
+        ml_sel = f"Doble Oportunidad: Empate o {favorito_real}"
         ml_prob = min(max_prob + p_draw, 95.0)
-        ml_razon = "Partido cerrado. Riesgo alto de empate."
+        ml_razon = f"Partido cerrado con ligera ventaja para {favorito_real}."
 
+    # --- BTTS (AMBOS ANOTAN) EXPLÍCITO ---
     att_h = float(comp.get("att", {}).get("home", "50%").replace("%", ""))
     att_a = float(comp.get("att", {}).get("away", "50%").replace("%", ""))
     def_h = float(comp.get("def", {}).get("home", "50%").replace("%", ""))
@@ -223,23 +230,24 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
     potencial_goles_a = (att_a + (100 - def_h)) / 2
     
     if potencial_goles_h > 50 and potencial_goles_a > 50:
-        btts_sel = "Sí (BTTS)"
+        btts_sel = "Ambos Equipos Anotan: SÍ"
         btts_prob = round((potencial_goles_h + potencial_goles_a) / 2 + 10, 1)
-        btts_razon = "Ambas ofensivas superan a las defensas rivales."
+        btts_razon = "Ambas ofensivas superan claramente a las defensas rivales."
     else:
-        btts_sel = "No (BTTS)"
+        btts_sel = "Ambos Equipos Anotan: NO"
         btts_prob = round(100 - ((potencial_goles_h + potencial_goles_a) / 2), 1)
-        btts_razon = "Al menos un equipo carece de potencia ofensiva (o hay una defensa muy sólida)."
+        btts_razon = "Falta de potencia ofensiva o defensas muy sólidas."
 
+    # --- GOLES / CORNERS EXPLÍCITOS ---
     accion_total = (potencial_goles_h + potencial_goles_a) / 2
     if accion_total >= 55:
-        corner_sel = "Over 8.5 Corners / Over 2.5 Goles"
+        corner_sel = "Apuesta: Más de 2.5 Goles Totales (o Más de 8.5 Corners)"
         corner_prob = min(round(accion_total + 15, 1), 88.0)
-        corner_razon = "Juego proyectado con muchas llegadas al área."
+        corner_razon = "Juego muy dinámico proyectado con llegadas constantes al área."
     else:
-        corner_sel = "Under 10.5 Corners / Under 3.5 Goles"
+        corner_sel = "Apuesta: Menos de 3.5 Goles Totales (o Menos de 10.5 Corners)"
         corner_prob = min(round((100 - accion_total) + 10, 1), 88.0)
-        corner_razon = "Partido de pocas llegadas o tránsito lento."
+        corner_razon = "Partido centralizado. Se espera poco tránsito en las áreas."
 
     return {
         "advice": advice,
@@ -393,7 +401,7 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
         st.session_state.deporte_seleccionado = None
         st.rerun()
         
-    st.title("⚽ AI Felix Picks Analyst — Datos Reales Fútbol v3.1")
+    st.title("⚽ AI Felix Picks Analyst — Datos Reales Fútbol v3.2")
     
     tab_analizador_fut, tab_ia_picks_fut = st.tabs(["🏟️ Analizador por Partido (API)", "🤖 AI Smart Picks (Ligas Top)"])
     partidos_futbol = obtener_partidos_futbol_hoy()
@@ -402,7 +410,6 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
         if not partidos_futbol:
             st.warning("⚠️ No hay partidos oficiales programados para el día de hoy.")
         else:
-            # Agrupamos por País + Liga para evitar confusiones en el dropdown
             partidos_por_liga = defaultdict(list)
             prioridad_liga = {}
             for p in partidos_futbol: 
@@ -433,55 +440,54 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                 st.divider()
                 
                 # BOTÓN DE EXTRACCIÓN
-                if st.button("🚀 Extraer Datos Reales (API)", type="primary", use_container_width=True):
-                    with st.spinner("Descargando estadísticas de API-Sports..."):
+                if st.button("🚀 Extraer Pronóstico Directo (API)", type="primary", use_container_width=True):
+                    with st.spinner("Descargando análisis oficial..."):
                         datos_reales = obtener_datos_reales_partido(datos_fut['id'])
                         if datos_reales:
                             st.session_state[f"analisis_{datos_fut['id']}"] = evaluar_futbol_real_api(datos_reales, datos_fut['away'], datos_fut['home'])
                         else:
-                            st.error("No hay predicciones disponibles para este partido o alcanzaste tu límite de API.")
+                            st.error("No hay predicciones disponibles para este partido.")
 
-                # MOSTRAR RESULTADOS (Fuera del botón para que no desaparezcan)
+                # MOSTRAR RESULTADOS
                 if f"analisis_{datos_fut['id']}" in st.session_state:
                     analisis = st.session_state[f"analisis_{datos_fut['id']}"]
                     
-                    st.success(f"🤖 **Consejo de la IA Central:** {analisis['advice']}")
+                    st.success(f"🤖 **Consejo Central:** {analisis['advice']}")
                     st.divider()
                     
                     col_m1, col_m2, col_m3 = st.columns(3)
                     with col_m1:
                         with st.container(border=True):
-                            st.markdown("**🏆 Moneyline (Ganador)**")
+                            st.markdown("**🏆 Línea de Dinero**")
                             st.caption(analisis['moneyline']['razon'])
                             renderizar_boton_pick(
-                                f"Añadir {analisis['moneyline']['sel']} ({analisis['moneyline']['prob']}%)",
-                                datos_fut['texto'], "Moneyline", analisis['moneyline']['sel'], analisis['moneyline']['prob'], f"ml_{datos_fut['id']}"
+                                f"Añadir: {analisis['moneyline']['sel']} ({analisis['moneyline']['prob']}%)",
+                                datos_fut['texto'], "Ganador", analisis['moneyline']['sel'], analisis['moneyline']['prob'], f"ml_{datos_fut['id']}"
                             )
                     
                     with col_m2:
                         with st.container(border=True):
-                            st.markdown("**🔥 Ambos Anotan (BTTS)**")
+                            st.markdown("**🔥 Ambos Anotan**")
                             st.caption(analisis['btts']['razon'])
                             renderizar_boton_pick(
-                                f"Añadir {analisis['btts']['sel']} ({analisis['btts']['prob']}%)",
+                                f"Añadir: {analisis['btts']['sel']} ({analisis['btts']['prob']}%)",
                                 datos_fut['texto'], "BTTS", analisis['btts']['sel'], analisis['btts']['prob'], f"btts_{datos_fut['id']}"
                             )
                     
                     with col_m3:
                         with st.container(border=True):
-                            st.markdown("**🚩 Acción y Corners**")
+                            st.markdown("**🚩 Acción (Goles/Corners)**")
                             st.caption(analisis['corners']['razon'])
                             renderizar_boton_pick(
-                                f"Añadir {analisis['corners']['sel']} ({analisis['corners']['prob']}%)",
-                                datos_fut['texto'], "Goles/Corners", analisis['corners']['sel'], analisis['corners']['prob'], f"corner_{datos_fut['id']}"
+                                f"Añadir: {analisis['corners']['sel']} ({analisis['corners']['prob']}%)",
+                                datos_fut['texto'], "Over/Under", analisis['corners']['sel'], analisis['corners']['prob'], f"corner_{datos_fut['id']}"
                             )
 
     with tab_ia_picks_fut:
         st.markdown("### 🤖 Escáner de Ligas Top")
-        st.markdown("Para proteger tu límite de API, este escáner solo analizará automáticamente un máximo de **10 partidos** de las ligas principales del mundo.")
+        st.markdown("Busca las apuestas más seguras (Goles, Corners o Ganadores) en los juegos principales de hoy.")
         
-        # El botón de escanear solo activa el proceso
-        if st.button("⚡ Ejecutar Escáner (Gasta ~10 Consultas API)", type="primary"):
+        if st.button("⚡ Escanear Mejores Picks (~10 Consultas API)", type="primary"):
             if not partidos_futbol:
                 st.warning("No hay partidos disponibles.")
             else:
@@ -497,7 +503,7 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                     total = len(partidos_top)
                     
                     for i, partido in enumerate(partidos_top):
-                        status.text(f"Descargando datos: {partido['away']} vs {partido['home']}...")
+                        status.text(f"Analizando: {partido['away']} vs {partido['home']}...")
                         datos_reales = obtener_datos_reales_partido(partido['id'])
                         
                         if datos_reales:
@@ -511,36 +517,33 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                                     })
                         barra.progress((i + 1) / total)
                     
-                    status.text("¡Escaneo Top completado!")
+                    status.text("¡Búsqueda finalizada!")
                     time.sleep(0.5)
                     status.empty()
                     barra.empty()
                     
                     picks_futbol_ia.sort(key=lambda x: x['probabilidad'], reverse=True)
-                    
-                    # Guardamos resultados en memoria persistente
                     st.session_state.picks_futbol_ia = picks_futbol_ia
                     st.session_state.ya_escaneo_fut = True
 
-        # MOSTRAR RESULTADOS (Fuera del botón para que no desaparezcan al recargar/añadir picks)
         if st.session_state.get("ya_escaneo_fut", False):
             if st.session_state.picks_futbol_ia:
-                st.success(f"¡El escáner detectó selecciones de alta confianza!")
+                st.success(f"¡El sistema detectó picks directos de alta confianza!")
                 for idx, pick in enumerate(st.session_state.picks_futbol_ia):
                     with st.container(border=True):
                         cp1, cp2, cp3 = st.columns([3, 1.5, 1])
                         with cp1:
                             st.markdown(f"⚽ **{pick.get('partido', '')}**")
-                            st.markdown(f"🎯 **{pick.get('mercado', '')}:** `{pick.get('seleccion', '')}`")
-                            st.caption(f"💡 *IA:* {pick.get('razon', '')}")
+                            # Esto ahora mostrará "Doble Oportunidad: Empate o Arsenal" explícitamente
+                            st.markdown(f"🎯 **PICK DIRECTO:** `{pick.get('seleccion', '')}`") 
+                            st.caption(f"💡 *Justificación:* {pick.get('razon', '')}")
                         with cp2:
                             st.metric(label="Confianza", value=f"{pick.get('probabilidad', 75.0)}%")
                         with cp3:
                             st.markdown("<br>", unsafe_allow_html=True)
-                            # Al añadir un pick, la página recarga pero como está fuera del if st.button, no se borrarán
                             renderizar_boton_pick("Añadir", pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 75.0), f"fut_ai_{idx}")
             else:
-                st.info("Hoy no hay juegos de ligas Top (o la IA no encontró selecciones que superen el 72% de confianza).")
+                st.info("Hoy no hay juegos que superen el 72% de confianza en las ligas Top.")
 
 # ==========================================
 # BARRA LATERAL UNIFICADA (MI ENTRADA)
