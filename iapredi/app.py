@@ -108,7 +108,7 @@ def renderizar_boton_pick(texto, partido, mercado, seleccion, prob, key_id):
 
 
 # ==========================================
-# FUNCIONES: MOTORES MLB (INTACTO Y BLINDADO)
+# FUNCIONES: MOTORES MLB (INTACTO)
 # ==========================================
 @st.cache_data(ttl=3600)
 def obtener_juegos_mlb(offset_dias):
@@ -230,7 +230,6 @@ def obtener_partidos_futbol(offset_dias):
             equipo_v = fixture["teams"]["away"]["name"]
             equipo_l = fixture["teams"]["home"]["name"]
             
-            # Etiquetamos todos los juegos para el nuevo filtro por ligas
             hora = datetime.fromtimestamp(fixture["fixture"]["timestamp"], tz=tz_centro).strftime('%H:%M') if fixture["fixture"]["timestamp"] else "N/A"
             
             partidos.append({
@@ -239,7 +238,6 @@ def obtener_partidos_futbol(offset_dias):
                 "texto": f"[{liga}] 🕒 {hora} | {equipo_v} @ {equipo_l}"
             })
         
-        # Ordenar alfabéticamente por liga y luego por hora
         partidos.sort(key=lambda x: (x["liga"], x["hora"]))
         return partidos
     except:
@@ -262,6 +260,22 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
     preds = datos_api.get("predictions", {})
     comp = datos_api.get("comparison", {})
     
+    # Extraemos valores
+    att_h = float(comp.get("att", {}).get("home", "50%").replace("%", ""))
+    att_a = float(comp.get("att", {}).get("away", "50%").replace("%", ""))
+    def_h = float(comp.get("def", {}).get("home", "50%").replace("%", ""))
+    def_a = float(comp.get("def", {}).get("away", "50%").replace("%", ""))
+    
+    # 🚨 FILTRO ANTI-FANTASMAS (DATOS VACÍOS DE LA API) 🚨
+    # Si la API no tiene info real, devuelve 50 en todo por el fallback. Abortamos para no dar pronósticos falsos.
+    if att_h == 50.0 and att_a == 50.0 and def_h == 50.0 and def_a == 50.0:
+        return {
+            "advice": "Información estadística aún no disponible en la API para este partido.",
+            "moneyline": {"sel": "⚠️ PASO: API Incompleta", "prob": 0.0, "razon": "Esperar a que se acerque la hora del juego."},
+            "btts": {"sel": "⚠️ PASO: API Incompleta", "prob": 0.0, "razon": "No hay comparativas de ataque reales."},
+            "corners": {"sel": "⚠️ PASO: API Incompleta", "prob": 0.0, "razon": "Datos de goles en blanco en el servidor."}
+        }
+
     p_home = float(preds.get("percent", {}).get("home", "33%").replace("%", ""))
     p_draw = float(preds.get("percent", {}).get("draw", "33%").replace("%", ""))
     p_away = float(preds.get("percent", {}).get("away", "33%").replace("%", ""))
@@ -291,11 +305,6 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
         ml_razon = "Probabilidades muy divididas. Riesgo alto, decisión del usuario."
 
     # BTTS
-    att_h = float(comp.get("att", {}).get("home", "50%").replace("%", ""))
-    att_a = float(comp.get("att", {}).get("away", "50%").replace("%", ""))
-    def_h = float(comp.get("def", {}).get("home", "50%").replace("%", ""))
-    def_a = float(comp.get("def", {}).get("away", "50%").replace("%", ""))
-    
     potencial_goles_h = (att_h + (100 - def_a)) / 2
     potencial_goles_a = (att_a + (100 - def_h)) / 2
     
@@ -313,7 +322,7 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
         btts_prob = round(max((potencial_goles_h + potencial_goles_a) / 2, 100 - ((potencial_goles_h + potencial_goles_a) / 2)), 1)
         btts_razon = "Métricas sin tendencia clara. Decisión del usuario."
 
-    # 🚀 NUEVO MOTOR DE GOLES (PROYECCIÓN ESCALADA COMO LA MLB) 🚀
+    # Goles
     max_ataque = max(potencial_goles_h, potencial_goles_a)
     suma_ataque = potencial_goles_h + potencial_goles_a
     
@@ -540,7 +549,6 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
         if not partidos_futbol:
             st.warning(f"⚠️ No hay partidos oficiales programados para {dia_seleccionado.lower()}.")
         else:
-            # Diccionario para agrupar las ligas
             partidos_por_liga = defaultdict(list)
             for p in partidos_futbol: 
                 nombre_comp = f"{p['pais']}: {p['liga']}"
@@ -608,21 +616,18 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                                 datos_fut['texto'], "Goles", analisis['corners']['sel'], analisis['corners']['prob'], f"corner_{datos_fut['id']}"
                             )
 
-    # 🚀 NUEVO ESCÁNER INTELIGENTE FILTRADO POR LIGA 🚀
     with tab_ia_picks_fut:
         st.markdown(f"### 🤖 Escáner de Apuestas por Ligas ({dia_seleccionado})")
         
         if not partidos_futbol:
             st.warning("No hay partidos disponibles.")
         else:
-            # Obtener una lista única de ligas que juegan este día
             ligas_hoy = sorted(list(set([f"{p['pais']}: {p['liga']}" for p in partidos_futbol])))
             
             liga_filtro = st.selectbox("🎯 Selecciona la liga que deseas escanear:", ligas_hoy)
             
             if st.button(f"⚡ Escanear Mejores Picks de {liga_filtro.split(': ')[1]}", type="primary"):
                 
-                # Filtrar solo los partidos de la liga seleccionada
                 partidos_a_escanear = [p for p in partidos_futbol if f"{p['pais']}: {p['liga']}" == liga_filtro]
                 
                 if not partidos_a_escanear:
@@ -661,13 +666,12 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
 
         if st.session_state.get("ya_escaneo_fut", False):
             if st.session_state.picks_futbol_ia:
-                st.success(f"¡Se detectaron las siguientes jugadas de alto valor en la **{st.session_state.liga_escaneada_fut}**!")
+                st.success(f"¡Se detectaron jugadas con datos reales en la **{st.session_state.liga_escaneada_fut}**!")
                 for idx, pick in enumerate(st.session_state.picks_futbol_ia):
                     with st.container(border=True):
                         cp1, cp2, cp3 = st.columns([3, 1.5, 1])
                         with cp1:
                             st.markdown(f"⚽ **{pick.get('partido', '')}**")
-                            # La IA ahora pondrá "Más de 3.5 Goles Totales" si el equipo proyecta golear
                             st.markdown(f"🎯 **PICK DIRECTO:** `{pick.get('seleccion', '')}`") 
                             st.caption(f"💡 *Justificación:* {pick.get('razon', '')}")
                         with cp2:
@@ -676,4 +680,4 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                             st.markdown("<br>", unsafe_allow_html=True)
                             renderizar_boton_pick("Añadir", pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 60.0), f"fut_ai_{idx}")
             else:
-                st.info(f"El motor no encontró apuestas que superen la línea de riesgo seguro para esta liga. Se recomienda no apostar aquí hoy.")
+                st.info(f"El motor no encontró apuestas seguras o la API aún no carga datos para esta liga.")
