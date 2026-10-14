@@ -39,7 +39,6 @@ with st.sidebar:
     dia_seleccionado = st.radio("Selecciona la fecha de los juegos:", list(dias_opciones.keys()))
     offset_dias = dias_opciones[dia_seleccionado]
     
-    # Si cambiamos de día, limpiamos la memoria del escáner para evitar que se mezclen
     if st.session_state.last_offset != offset_dias:
         st.session_state.picks_futbol_ia = []
         st.session_state.ya_escaneo_fut = False
@@ -59,7 +58,7 @@ with st.sidebar:
         dec_odds = 1 / prob_dec if prob_dec > 0 else 1.0
         
         c_p, c_m = st.columns(2)
-        with c_p: st.markdown(f"**Probabilidad**\n\n`{prob_porcentaje:.1f}%`")
+        with c_p: st.markdown(f"**Probabilidad Real**\n\n`{prob_porcentaje:.1f}%`")
         with c_m: st.markdown(f"**Momio Justo**\n\n`{dec_odds:.2f}x`")
         
         st.divider()
@@ -93,6 +92,7 @@ def agregar_al_parlay(partido, mercado, seleccion, probabilidad):
     })
     st.rerun()
 
+# --- AQUÍ DESBLOQUEAMOS EL BOTÓN DE AÑADIR SIEMPRE ---
 def renderizar_boton_pick(texto, partido, mercado, seleccion, prob, key_id):
     existe = any(p['partido'] == partido and p['mercado'] == mercado and p['seleccion'] == seleccion for p in st.session_state.parlay)
     if existe:
@@ -100,6 +100,7 @@ def renderizar_boton_pick(texto, partido, mercado, seleccion, prob, key_id):
     else:
         if st.button(texto, key=f"btn_add_{key_id}", use_container_width=True):
             agregar_al_parlay(partido, mercado, seleccion, prob)
+
 
 # ==========================================
 # FUNCIONES: MOTORES MLB
@@ -203,7 +204,7 @@ def evaluar_ponches_draftea(k9, avg_ip, nombre):
 
 
 # ==========================================
-# FUNCIONES: MOTOR FÚTBOL REAL (API PREDICTIONS)
+# FUNCIONES: MOTOR FÚTBOL REAL (SIN MAQUILLAJE)
 # ==========================================
 @st.cache_data(ttl=3600)
 def obtener_partidos_futbol(offset_dias):
@@ -270,20 +271,31 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
     p_away = float(preds.get("percent", {}).get("away", "33%").replace("%", ""))
     advice = preds.get("advice", "Sin datos concluyentes").capitalize()
     
-    if p_home >= 45.0 and (p_home - p_away) >= 10.0:
+    # 🎯 EVALUACIÓN ESTRICTA DE GANADOR
+    if p_home >= 60.0 and (p_home - p_away) >= 25.0:
         ml_sel = f"Victoria Directa: {equipo_l}"
-        ml_prob = min(round(p_home + 30.0, 1), 95.0)
-        ml_razon = f"Claro favorito local (WinRate proyectado real: {p_home}%)."
-    elif p_away >= 45.0 and (p_away - p_home) >= 10.0:
+        ml_prob = round(p_home, 1)
+        ml_razon = f"Dominio claro de {equipo_l} ({p_home}% de probabilidad real)."
+    elif p_away >= 60.0 and (p_away - p_home) >= 25.0:
         ml_sel = f"Victoria Directa: {equipo_v}"
-        ml_prob = min(round(p_away + 30.0, 1), 95.0)
-        ml_razon = f"Claro favorito visitante (WinRate proyectado real: {p_away}%)."
+        ml_prob = round(p_away, 1)
+        ml_razon = f"Dominio claro de {equipo_v} ({p_away}% de probabilidad real)."
+    elif p_home >= 48.0 and (p_home - p_away) >= 15.0:
+        ml_sel = f"Empate No Válido (DNB): {equipo_l}"
+        ml_prob = round(p_home + (p_draw * 0.5), 1)
+        ml_razon = f"Ventaja para {equipo_l}. Si empatan, se reembolsa la apuesta."
+    elif p_away >= 48.0 and (p_away - p_home) >= 15.0:
+        ml_sel = f"Empate No Válido (DNB): {equipo_v}"
+        ml_prob = round(p_away + (p_draw * 0.5), 1)
+        ml_razon = f"Ventaja para {equipo_v}. Si empatan, se reembolsa la apuesta."
     else:
+        # --- NUEVA LÓGICA: Da la alerta pero MUESTRA el pick sugerido ---
         favorito_real = equipo_l if p_home >= p_away else equipo_v
-        ml_sel = f"Doble Oportunidad: Empate o {favorito_real}"
-        ml_prob = min(round(max(p_home, p_away) + p_draw + 10.0, 1), 95.0)
-        ml_razon = f"Partido cerrado. Cubrimos el empate con ventaja para {favorito_real}."
+        ml_sel = f"⚠️ PASO: Partido Trampa / Sin Valor (Sugerencia: DNB {favorito_real})"
+        ml_prob = round(max(p_home, p_away) + (p_draw * 0.5), 1)
+        ml_razon = "Probabilidades muy divididas. Riesgo alto, decisión del usuario."
 
+    # 🎯 EVALUACIÓN DE AMBOS ANOTAN (BTTS)
     att_h = float(comp.get("att", {}).get("home", "50%").replace("%", ""))
     att_a = float(comp.get("att", {}).get("away", "50%").replace("%", ""))
     def_h = float(comp.get("def", {}).get("home", "50%").replace("%", ""))
@@ -292,29 +304,43 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
     potencial_goles_h = (att_h + (100 - def_a)) / 2
     potencial_goles_a = (att_a + (100 - def_h)) / 2
     
-    if potencial_goles_h > 50 and potencial_goles_a > 50:
+    if potencial_goles_h >= 55.0 and potencial_goles_a >= 55.0:
         btts_sel = "Ambos Equipos Anotan: SÍ"
-        btts_prob = min(round((potencial_goles_h + potencial_goles_a) / 2 + 20.0, 1), 95.0)
+        btts_prob = round((potencial_goles_h + potencial_goles_a) / 2, 1)
         btts_razon = "Ambas ofensivas superan claramente a las defensas rivales."
-    else:
+    elif potencial_goles_h <= 38.0 or potencial_goles_a <= 38.0:
         btts_sel = "Ambos Equipos Anotan: NO"
-        btts_prob = min(round(100 - ((potencial_goles_h + potencial_goles_a) / 2) + 20.0, 1), 95.0)
-        btts_razon = "Falta de potencia ofensiva o defensas muy sólidas."
+        btts_prob = round(100 - ((potencial_goles_h + potencial_goles_a) / 2), 1)
+        btts_razon = "Al menos un equipo tiene ataque nulo o defensa impenetrable."
+    else:
+        # --- NUEVA LÓGICA: Da la alerta pero MUESTRA el pick sugerido ---
+        tendencia_btts = "SÍ" if (potencial_goles_h + potencial_goles_a) / 2 >= 50 else "NO"
+        btts_sel = f"⚠️ PASO: Partido Trampa / Sin Valor (Sugerencia: {tendencia_btts})"
+        btts_prob = round(max((potencial_goles_h + potencial_goles_a) / 2, 100 - ((potencial_goles_h + potencial_goles_a) / 2)), 1)
+        btts_razon = "Métricas sin tendencia clara. Decisión del usuario."
 
-    # 🚨 CORRECCIÓN PARA EQUIPOS GOLEADORES (Ej: Barcelona, City) 🚨
-    # En vez de promediar, buscamos si hay un MÁXIMO poder ofensivo en la cancha 
-    # o si ambos suman un gran total, lo que asegura goles aunque el rival no ataque.
+    # 🎯 EVALUACIÓN DE GOLES (OVER/UNDER)
     max_ataque = max(potencial_goles_h, potencial_goles_a)
     suma_ataque = potencial_goles_h + potencial_goles_a
     
-    if max_ataque >= 62.0 or suma_ataque >= 110.0:
-        corner_sel = "Apuesta: Más de 2.5 Goles Totales (o Más de 8.5 Corners)"
-        corner_prob = min(round(max_ataque + 25.0, 1), 95.0)
-        corner_razon = "Juego muy dinámico. Hay un poder ofensivo abrumador en la cancha."
+    if max_ataque >= 65.0 and suma_ataque >= 115.0:
+        corner_sel = "Más de 2.5 Goles Totales"
+        corner_prob = round(max_ataque, 1)
+        corner_razon = "Poder ofensivo muy elevado. Proyección de partido abierto."
+    elif suma_ataque >= 95.0:
+        corner_sel = "Más de 1.5 Goles Totales"
+        corner_prob = round(min(suma_ataque * 0.7, 88.0), 1)
+        corner_razon = "Partido con alta probabilidad de al menos 2 goles globales."
+    elif suma_ataque <= 65.0:
+        corner_sel = "Menos de 2.5 Goles Totales"
+        corner_prob = round(100 - (suma_ataque / 2), 1)
+        corner_razon = "Equipos defensivos o de muy bajo promedio de gol."
     else:
-        corner_sel = "Apuesta: Menos de 3.5 Goles Totales (o Menos de 10.5 Corners)"
-        corner_prob = min(round((100 - max_ataque) + 25.0, 1), 95.0)
-        corner_razon = "Partido centralizado. Se espera poco tránsito en las áreas y baja efectividad."
+        # --- NUEVA LÓGICA: Da la alerta pero MUESTRA el pick sugerido ---
+        tend_goles = "Más de 1.5 Goles Totales" if suma_ataque >= 75.0 else "Menos de 3.5 Goles Totales"
+        corner_sel = f"⚠️ PASO: Partido Trampa / Sin Valor (Sugerencia: {tend_goles})"
+        corner_prob = round(max(suma_ataque * 0.5, 100 - (suma_ataque * 0.5)), 1)
+        corner_razon = "Línea de goles sin valor sólido. Decisión del usuario."
 
     return {
         "advice": advice,
@@ -515,7 +541,7 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
 
     with tab_ia_picks_fut:
         st.markdown(f"### 🤖 Escáner de Ligas Top ({dia_seleccionado})")
-        st.markdown("Busca las apuestas más seguras (Goles, Corners o Ganadores) en los juegos principales.")
+        st.markdown("Busca únicamente apuestas con alto valor estadístico real (sin inflar porcentajes).")
         
         if st.button(f"⚡ Escanear Mejores Picks de {dia_seleccionado}", type="primary"):
             if not partidos_futbol:
@@ -540,7 +566,7 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                             res = evaluar_futbol_real_api(datos_reales, partido['away'], partido['home'])
                             for mercado_key in ['moneyline', 'btts', 'corners']:
                                 item = res[mercado_key]
-                                if item['prob'] >= 72.0:
+                                if "⚠️ PASO" not in item['sel'] and item['prob'] >= 60.0:
                                     picks_futbol_ia.append({
                                         "partido": partido['texto'], "mercado": mercado_key.upper(),
                                         "seleccion": item['sel'], "probabilidad": item['prob'], "razon": item['razon']
@@ -558,7 +584,7 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
 
         if st.session_state.get("ya_escaneo_fut", False):
             if st.session_state.picks_futbol_ia:
-                st.success(f"¡El sistema detectó picks directos de alta confianza para {dia_seleccionado.lower()}!")
+                st.success(f"¡El escáner filtró jugadas de VALOR REAL (sin falsos 90%) para {dia_seleccionado.lower()}!")
                 for idx, pick in enumerate(st.session_state.picks_futbol_ia):
                     with st.container(border=True):
                         cp1, cp2, cp3 = st.columns([3, 1.5, 1])
@@ -567,9 +593,9 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                             st.markdown(f"🎯 **PICK DIRECTO:** `{pick.get('seleccion', '')}`") 
                             st.caption(f"💡 *Justificación:* {pick.get('razon', '')}")
                         with cp2:
-                            st.metric(label="Confianza", value=f"{pick.get('probabilidad', 75.0)}%")
+                            st.metric(label="Confianza Real", value=f"{pick.get('probabilidad', 60.0)}%")
                         with cp3:
                             st.markdown("<br>", unsafe_allow_html=True)
-                            renderizar_boton_pick("Añadir", pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 75.0), f"fut_ai_{idx}")
+                            renderizar_boton_pick("Añadir", pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 60.0), f"fut_ai_{idx}")
             else:
-                st.info(f"Para {dia_seleccionado.lower()} no hay juegos que superen el 72% de confianza en las ligas Top.")
+                st.info(f"Para {dia_seleccionado.lower()} no hay apuestas de alto valor seguro. La IA recomienda PASAR en la jornada.")
