@@ -108,7 +108,7 @@ def renderizar_boton_pick(texto, partido, mercado, seleccion, prob, key_id):
 
 
 # ==========================================
-# FUNCIONES: MOTORES MLB
+# FUNCIONES: MOTORES MLB (INTACTO Y BLINDADO)
 # ==========================================
 @st.cache_data(ttl=3600)
 def obtener_juegos_mlb(offset_dias):
@@ -222,16 +222,6 @@ def obtener_partidos_futbol(offset_dias):
         datos = response.json()
         if "response" not in datos or not datos["response"]: return []
             
-        ligas_top_nacionales = {
-            ("England", "Premier League"),
-            ("Spain", "La Liga"),
-            ("Italy", "Serie A"),
-            ("Germany", "Bundesliga"),
-            ("France", "Ligue 1"),
-            ("Mexico", "Liga MX")
-        }
-        ligas_top_internacionales = ["UEFA Champions League", "Copa Libertadores", "CONMEBOL Sudamericana", "UEFA Europa League"]
-            
         partidos = []
         for fixture in datos["response"]:
             fid = fixture["fixture"]["id"]
@@ -240,16 +230,17 @@ def obtener_partidos_futbol(offset_dias):
             equipo_v = fixture["teams"]["away"]["name"]
             equipo_l = fixture["teams"]["home"]["name"]
             
-            es_top = (pais, liga) in ligas_top_nacionales or liga in ligas_top_internacionales
-            prioridad = 0 if es_top else 1
+            # Etiquetamos todos los juegos para el nuevo filtro por ligas
             hora = datetime.fromtimestamp(fixture["fixture"]["timestamp"], tz=tz_centro).strftime('%H:%M') if fixture["fixture"]["timestamp"] else "N/A"
             
             partidos.append({
-                "id": fid, "liga": liga, "pais": pais, "hora": hora, "prioridad": prioridad,
+                "id": fid, "liga": liga, "pais": pais, "hora": hora,
                 "away": equipo_v, "home": equipo_l, "logo_v": fixture["teams"]["away"]["logo"], "logo_l": fixture["teams"]["home"]["logo"],
                 "texto": f"[{liga}] 🕒 {hora} | {equipo_v} @ {equipo_l}"
             })
-        partidos.sort(key=lambda x: (x["prioridad"], x["liga"]))
+        
+        # Ordenar alfabéticamente por liga y luego por hora
+        partidos.sort(key=lambda x: (x["liga"], x["hora"]))
         return partidos
     except:
         return []
@@ -318,31 +309,39 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
         btts_razon = "Al menos un equipo tiene ataque nulo o defensa impenetrable."
     else:
         tendencia_btts = "SÍ" if (potencial_goles_h + potencial_goles_a) / 2 >= 50 else "NO"
-        btts_sel = f"⚠️ PASO: Partido Trampa / Sin Valor (Sugerencia: {tendencia_btts})"
+        btts_sel = f"⚠️ PASO: Partido Trampa (Sugerencia: {tendencia_btts})"
         btts_prob = round(max((potencial_goles_h + potencial_goles_a) / 2, 100 - ((potencial_goles_h + potencial_goles_a) / 2)), 1)
         btts_razon = "Métricas sin tendencia clara. Decisión del usuario."
 
-    # Goles
+    # 🚀 NUEVO MOTOR DE GOLES (PROYECCIÓN ESCALADA COMO LA MLB) 🚀
     max_ataque = max(potencial_goles_h, potencial_goles_a)
     suma_ataque = potencial_goles_h + potencial_goles_a
     
-    if max_ataque >= 65.0 and suma_ataque >= 115.0:
-        corner_sel = "Más de 2.5 Goles Totales"
-        corner_prob = round(max_ataque, 1)
-        corner_razon = "Poder ofensivo muy elevado. Proyección de partido abierto."
-    elif suma_ataque >= 95.0:
-        corner_sel = "Más de 1.5 Goles Totales"
-        corner_prob = round(min(suma_ataque * 0.7, 88.0), 1)
-        corner_razon = "Partido con alta probabilidad de al menos 2 goles globales."
-    elif suma_ataque <= 65.0:
-        corner_sel = "Menos de 2.5 Goles Totales"
-        corner_prob = round(100 - (suma_ataque / 2), 1)
-        corner_razon = "Equipos defensivos o de muy bajo promedio de gol."
+    if suma_ataque >= 135.0 or max_ataque >= 85.0:
+        corner_sel = "🔥 Más de 3.5 Goles Totales"
+        corner_prob = round(min(suma_ataque * 0.55, 95.0), 1)
+        corner_razon = f"Ataque letal o ida y vuelta brutal. Proyección métrica: {suma_ataque:.1f} pts."
+    elif suma_ataque >= 115.0 or max_ataque >= 72.0:
+        corner_sel = "🚀 Más de 2.5 Goles Totales"
+        corner_prob = round(min(suma_ataque * 0.65, 88.0), 1)
+        corner_razon = f"Poder ofensivo elevado. Proyección abierta. Métrica: {suma_ataque:.1f} pts."
+    elif suma_ataque >= 90.0:
+        corner_sel = "⚽ Más de 1.5 Goles Totales"
+        corner_prob = round(min(suma_ataque * 0.75, 85.0), 1)
+        corner_razon = f"Probabilidad sólida de al menos 2 goles. Métrica: {suma_ataque:.1f} pts."
+    elif suma_ataque <= 55.0:
+        corner_sel = "🧱 Menos de 1.5 Goles Totales"
+        corner_prob = round(100 - (suma_ataque * 0.8), 1)
+        corner_razon = "Equipos inoperantes en ataque o defensas cerradas."
+    elif suma_ataque <= 75.0:
+        corner_sel = "🛡️ Menos de 2.5 Goles Totales"
+        corner_prob = round(100 - (suma_ataque * 0.6), 1)
+        corner_razon = "Bajo promedio de gol esperado o partido muy trabado."
     else:
-        tend_goles = "Más de 1.5 Goles Totales" if suma_ataque >= 75.0 else "Menos de 3.5 Goles Totales"
-        corner_sel = f"⚠️ PASO: Partido Trampa / Sin Valor (Sugerencia: {tend_goles})"
-        corner_prob = round(max(suma_ataque * 0.5, 100 - (suma_ataque * 0.5)), 1)
-        corner_razon = "Línea de goles sin valor sólido. Decisión del usuario."
+        tend_goles = "Más de 1.5 Goles Totales" if suma_ataque >= 80.0 else "Menos de 3.5 Goles Totales"
+        corner_sel = f"⚠️ PASO: Mercado Trampa (Sugerencia: {tend_goles})"
+        corner_prob = 55.0
+        corner_razon = "Línea de goles sin valor estadístico agresivo. Decisión del usuario."
 
     return {
         "advice": advice,
@@ -451,7 +450,6 @@ elif st.session_state.deporte_seleccionado == "MLB":
                             st.caption(f"💡 {r_1ra}")
                             if s_1ra: renderizar_boton_pick(f"{s_1ra} ({p_1ra}%)", datos_juego['texto'], "1ra E", s_1ra, p_1ra, f"1ra_{datos_juego['id']}")
 
-    # --- ESCÁNER MLB REACTIVADO ---
     with tab_ia_picks:
         st.markdown(f"### 🤖 Escáner Quirúrgico ({dia_seleccionado})")
         st.markdown("Analiza automáticamente los juegos de la jornada para encontrar oportunidades de alto valor (F5 y Ponches).")
@@ -463,9 +461,7 @@ elif st.session_state.deporte_seleccionado == "MLB":
                 picks_mlb_ia = []
                 barra = st.progress(0)
                 status = st.empty()
-                total = len(juegos)
                 
-                # Limitamos a un máximo de 10 juegos para proteger el límite de peticiones de Tank01
                 juegos_a_escanear = juegos[:10]
                 total = len(juegos_a_escanear)
                 
@@ -480,17 +476,14 @@ elif st.session_state.deporte_seleccionado == "MLB":
                         dl, err_l = obtener_estadisticas_avanzadas(nl)
                         
                         if dv and dl:
-                            # 1. Evaluar F5
                             r_f5, s_f5, p_f5 = evaluar_f5_quirurgico(dv['sbr'], dv['whip'], dv['fip'], dv['era'], dl['sbr'], dl['whip'], dl['fip'], dl['era'], juego['away'], juego['home'])
                             if s_f5 and p_f5 >= 75.0:
                                 picks_mlb_ia.append({"partido": juego['texto'], "mercado": "F5 / MITAD", "seleccion": s_f5, "probabilidad": p_f5, "razon": r_f5})
                             
-                            # 2. Evaluar NRFI (1ra Entrada)
                             r_1ra, s_1ra, p_1ra = evaluar_primera_entrada(dv['fip'], dv['era'], dl['fip'], dl['era'])
                             if s_1ra and p_1ra >= 75.0:
                                 picks_mlb_ia.append({"partido": juego['texto'], "mercado": "1ra ENTRADA", "seleccion": s_1ra, "probabilidad": p_1ra, "razon": r_1ra})
                                 
-                            # 3. Evaluar Ponches (K's)
                             rk_v, sk_v, pk_v = evaluar_ponches_draftea(dv['k9'], dv['avg_ip'], dv['nombre'])
                             if sk_v and pk_v >= 75.0:
                                 picks_mlb_ia.append({"partido": juego['texto'], "mercado": "PONCHES", "seleccion": sk_v, "probabilidad": pk_v, "razon": rk_v})
@@ -500,7 +493,6 @@ elif st.session_state.deporte_seleccionado == "MLB":
                                 picks_mlb_ia.append({"partido": juego['texto'], "mercado": "PONCHES", "seleccion": sk_l, "probabilidad": pk_l, "razon": rk_l})
                                 
                     barra.progress((i + 1) / total)
-                    # Pequeña pausa para no saturar la API
                     time.sleep(1)
                 
                 status.text("¡Búsqueda finalizada!")
@@ -541,21 +533,20 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
         
     st.title(f"⚽ AI Felix Picks Analyst — Fútbol ({dia_seleccionado})")
     
-    tab_analizador_fut, tab_ia_picks_fut = st.tabs(["🏟️ Analizador por Partido", "🤖 AI Smart Picks (Ligas Top)"])
+    tab_analizador_fut, tab_ia_picks_fut = st.tabs(["🏟️ Analizador por Partido", "🤖 AI Smart Picks (Por Ligas)"])
     partidos_futbol = obtener_partidos_futbol(offset_dias)
     
     with tab_analizador_fut:
         if not partidos_futbol:
             st.warning(f"⚠️ No hay partidos oficiales programados para {dia_seleccionado.lower()}.")
         else:
+            # Diccionario para agrupar las ligas
             partidos_por_liga = defaultdict(list)
-            prioridad_liga = {}
             for p in partidos_futbol: 
                 nombre_comp = f"{p['pais']}: {p['liga']}"
                 partidos_por_liga[nombre_comp].append(p)
-                prioridad_liga[nombre_comp] = p['prioridad']
                 
-            ligas_ordenadas = sorted(partidos_por_liga.keys(), key=lambda x: (prioridad_liga[x], x))
+            ligas_ordenadas = sorted(partidos_por_liga.keys())
             
             liga_seleccionada = st.selectbox("🏆 Selecciona una Competición:", options=ligas_ordenadas)
             partidos_de_liga = partidos_por_liga[liga_seleccionada]
@@ -610,33 +601,40 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                             )
                     with col_m3:
                         with st.container(border=True):
-                            st.markdown("**🚩 Acción (Goles/Corners)**")
+                            st.markdown("**🚩 Acción (Goles)**")
                             st.caption(analisis['corners']['razon'])
                             renderizar_boton_pick(
                                 f"Añadir: {analisis['corners']['sel']} ({analisis['corners']['prob']}%)",
-                                datos_fut['texto'], "Over/Under", analisis['corners']['sel'], analisis['corners']['prob'], f"corner_{datos_fut['id']}"
+                                datos_fut['texto'], "Goles", analisis['corners']['sel'], analisis['corners']['prob'], f"corner_{datos_fut['id']}"
                             )
 
+    # 🚀 NUEVO ESCÁNER INTELIGENTE FILTRADO POR LIGA 🚀
     with tab_ia_picks_fut:
-        st.markdown(f"### 🤖 Escáner de Ligas Top ({dia_seleccionado})")
-        st.markdown("Busca únicamente apuestas con alto valor estadístico real (sin inflar porcentajes).")
+        st.markdown(f"### 🤖 Escáner de Apuestas por Ligas ({dia_seleccionado})")
         
-        if st.button(f"⚡ Escanear Mejores Picks de {dia_seleccionado}", type="primary"):
-            if not partidos_futbol:
-                st.warning("No hay partidos disponibles.")
-            else:
-                partidos_top = [p for p in partidos_futbol if p['prioridad'] == 0][:10]
+        if not partidos_futbol:
+            st.warning("No hay partidos disponibles.")
+        else:
+            # Obtener una lista única de ligas que juegan este día
+            ligas_hoy = sorted(list(set([f"{p['pais']}: {p['liga']}" for p in partidos_futbol])))
+            
+            liga_filtro = st.selectbox("🎯 Selecciona la liga que deseas escanear:", ligas_hoy)
+            
+            if st.button(f"⚡ Escanear Mejores Picks de {liga_filtro.split(': ')[1]}", type="primary"):
                 
-                if not partidos_top:
+                # Filtrar solo los partidos de la liga seleccionada
+                partidos_a_escanear = [p for p in partidos_futbol if f"{p['pais']}: {p['liga']}" == liga_filtro]
+                
+                if not partidos_a_escanear:
                     st.session_state.picks_futbol_ia = []
                     st.session_state.ya_escaneo_fut = True
                 else:
                     picks_futbol_ia = []
                     barra = st.progress(0)
                     status = st.empty()
-                    total = len(partidos_top)
+                    total = len(partidos_a_escanear)
                     
-                    for i, partido in enumerate(partidos_top):
+                    for i, partido in enumerate(partidos_a_escanear):
                         status.text(f"Analizando: {partido['away']} vs {partido['home']}...")
                         datos_reales = obtener_datos_reales_partido(partido['id'])
                         
@@ -651,7 +649,7 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                                     })
                         barra.progress((i + 1) / total)
                     
-                    status.text("¡Búsqueda finalizada!")
+                    status.text("¡Escaneo completo!")
                     time.sleep(0.5)
                     status.empty()
                     barra.empty()
@@ -659,15 +657,17 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                     picks_futbol_ia.sort(key=lambda x: x['probabilidad'], reverse=True)
                     st.session_state.picks_futbol_ia = picks_futbol_ia
                     st.session_state.ya_escaneo_fut = True
+                    st.session_state.liga_escaneada_fut = liga_filtro.split(': ')[1]
 
         if st.session_state.get("ya_escaneo_fut", False):
             if st.session_state.picks_futbol_ia:
-                st.success(f"¡El escáner filtró jugadas de VALOR REAL (sin falsos 90%) para {dia_seleccionado.lower()}!")
+                st.success(f"¡Se detectaron las siguientes jugadas de alto valor en la **{st.session_state.liga_escaneada_fut}**!")
                 for idx, pick in enumerate(st.session_state.picks_futbol_ia):
                     with st.container(border=True):
                         cp1, cp2, cp3 = st.columns([3, 1.5, 1])
                         with cp1:
                             st.markdown(f"⚽ **{pick.get('partido', '')}**")
+                            # La IA ahora pondrá "Más de 3.5 Goles Totales" si el equipo proyecta golear
                             st.markdown(f"🎯 **PICK DIRECTO:** `{pick.get('seleccion', '')}`") 
                             st.caption(f"💡 *Justificación:* {pick.get('razon', '')}")
                         with cp2:
@@ -676,4 +676,4 @@ elif st.session_state.deporte_seleccionado == "FUTBOL":
                             st.markdown("<br>", unsafe_allow_html=True)
                             renderizar_boton_pick("Añadir", pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 60.0), f"fut_ai_{idx}")
             else:
-                st.info(f"Para {dia_seleccionado.lower()} no hay apuestas de alto valor seguro. La IA recomienda PASAR en la jornada.")
+                st.info(f"El motor no encontró apuestas que superen la línea de riesgo seguro para esta liga. Se recomienda no apostar aquí hoy.")
