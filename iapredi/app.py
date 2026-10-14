@@ -42,6 +42,8 @@ with st.sidebar:
     if st.session_state.last_offset != offset_dias:
         st.session_state.picks_futbol_ia = []
         st.session_state.ya_escaneo_fut = False
+        st.session_state.picks_mlb_ia = []
+        st.session_state.ya_escaneo_mlb = False
         st.session_state.last_offset = offset_dias
         st.rerun()
         
@@ -92,8 +94,11 @@ def agregar_al_parlay(partido, mercado, seleccion, probabilidad):
     })
     st.rerun()
 
-# --- AQUÍ DESBLOQUEAMOS EL BOTÓN DE AÑADIR SIEMPRE ---
 def renderizar_boton_pick(texto, partido, mercado, seleccion, prob, key_id):
+    if "⚠️ PASO" in seleccion:
+        st.button("⚠️ No Recomendado", disabled=True, key=f"btn_paso_{key_id}", use_container_width=True)
+        return
+        
     existe = any(p['partido'] == partido and p['mercado'] == mercado and p['seleccion'] == seleccion for p in st.session_state.parlay)
     if existe:
         st.button("✅ Añadido", disabled=True, key=f"btn_dis_{key_id}", use_container_width=True)
@@ -183,7 +188,7 @@ def evaluar_f5_quirurgico(sbr_v, whip_v, fip_v, era_v, sbr_l, whip_l, fip_l, era
         riv_era = era_l if diff > 0 else era_v
         if prob >= 75.0 and whip < 1.25 and riv_era > 4.50:
             return f"🔥 F5 MONEYLINE: Dominio de {fav}.", f"Gana {fav} (1-5 E)", prob
-    return "❌ Sin valor F5.", None, 0
+    return "❌ Sin valor claro a Ganador F5.", None, 0
 
 def evaluar_primera_entrada(fip_v, era_v, fip_l, era_l):
     if fip_v < 3.20 and era_v < 3.50 and fip_l < 3.20 and era_l < 3.50:
@@ -204,7 +209,7 @@ def evaluar_ponches_draftea(k9, avg_ip, nombre):
 
 
 # ==========================================
-# FUNCIONES: MOTOR FÚTBOL REAL (SIN MAQUILLAJE)
+# FUNCIONES: MOTOR FÚTBOL REAL
 # ==========================================
 @st.cache_data(ttl=3600)
 def obtener_partidos_futbol(offset_dias):
@@ -271,7 +276,7 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
     p_away = float(preds.get("percent", {}).get("away", "33%").replace("%", ""))
     advice = preds.get("advice", "Sin datos concluyentes").capitalize()
     
-    # 🎯 EVALUACIÓN ESTRICTA DE GANADOR
+    # Ganador
     if p_home >= 60.0 and (p_home - p_away) >= 25.0:
         ml_sel = f"Victoria Directa: {equipo_l}"
         ml_prob = round(p_home, 1)
@@ -289,13 +294,12 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
         ml_prob = round(p_away + (p_draw * 0.5), 1)
         ml_razon = f"Ventaja para {equipo_v}. Si empatan, se reembolsa la apuesta."
     else:
-        # --- NUEVA LÓGICA: Da la alerta pero MUESTRA el pick sugerido ---
         favorito_real = equipo_l if p_home >= p_away else equipo_v
         ml_sel = f"⚠️ PASO: Partido Trampa / Sin Valor (Sugerencia: DNB {favorito_real})"
         ml_prob = round(max(p_home, p_away) + (p_draw * 0.5), 1)
         ml_razon = "Probabilidades muy divididas. Riesgo alto, decisión del usuario."
 
-    # 🎯 EVALUACIÓN DE AMBOS ANOTAN (BTTS)
+    # BTTS
     att_h = float(comp.get("att", {}).get("home", "50%").replace("%", ""))
     att_a = float(comp.get("att", {}).get("away", "50%").replace("%", ""))
     def_h = float(comp.get("def", {}).get("home", "50%").replace("%", ""))
@@ -313,13 +317,12 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
         btts_prob = round(100 - ((potencial_goles_h + potencial_goles_a) / 2), 1)
         btts_razon = "Al menos un equipo tiene ataque nulo o defensa impenetrable."
     else:
-        # --- NUEVA LÓGICA: Da la alerta pero MUESTRA el pick sugerido ---
         tendencia_btts = "SÍ" if (potencial_goles_h + potencial_goles_a) / 2 >= 50 else "NO"
         btts_sel = f"⚠️ PASO: Partido Trampa / Sin Valor (Sugerencia: {tendencia_btts})"
         btts_prob = round(max((potencial_goles_h + potencial_goles_a) / 2, 100 - ((potencial_goles_h + potencial_goles_a) / 2)), 1)
         btts_razon = "Métricas sin tendencia clara. Decisión del usuario."
 
-    # 🎯 EVALUACIÓN DE GOLES (OVER/UNDER)
+    # Goles
     max_ataque = max(potencial_goles_h, potencial_goles_a)
     suma_ataque = potencial_goles_h + potencial_goles_a
     
@@ -336,7 +339,6 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
         corner_prob = round(100 - (suma_ataque / 2), 1)
         corner_razon = "Equipos defensivos o de muy bajo promedio de gol."
     else:
-        # --- NUEVA LÓGICA: Da la alerta pero MUESTRA el pick sugerido ---
         tend_goles = "Más de 1.5 Goles Totales" if suma_ataque >= 75.0 else "Menos de 3.5 Goles Totales"
         corner_sel = f"⚠️ PASO: Partido Trampa / Sin Valor (Sugerencia: {tend_goles})"
         corner_prob = round(max(suma_ataque * 0.5, 100 - (suma_ataque * 0.5)), 1)
@@ -362,7 +364,7 @@ if st.session_state.deporte_seleccionado is None:
     with col1:
         with st.container(border=True):
             st.markdown("<h1 style='text-align: center; font-size: 80px;'>⚾</h1>", unsafe_allow_html=True)
-            st.markdown("<h2 style='text-align: center;'>Motor MLB (v2.1)</h2>", unsafe_allow_html=True)
+            st.markdown("<h2 style='text-align: center;'>Motor MLB (v2.2)</h2>", unsafe_allow_html=True)
             st.markdown("<p style='text-align: center; color: #888;'>Filtros Anti-Empate, Colchón de Ponches y NRFIs.</p>", unsafe_allow_html=True)
             if st.button("INICIAR ESCÁNER MLB", use_container_width=True, type="primary"):
                 st.session_state.deporte_seleccionado = "MLB"
@@ -449,9 +451,85 @@ elif st.session_state.deporte_seleccionado == "MLB":
                             st.caption(f"💡 {r_1ra}")
                             if s_1ra: renderizar_boton_pick(f"{s_1ra} ({p_1ra}%)", datos_juego['texto'], "1ra E", s_1ra, p_1ra, f"1ra_{datos_juego['id']}")
 
+    # --- ESCÁNER MLB REACTIVADO ---
     with tab_ia_picks:
-        st.markdown("### 🤖 Escáner Quirúrgico")
-        st.info("Función de escáner en mantenimiento para MLB.")
+        st.markdown(f"### 🤖 Escáner Quirúrgico ({dia_seleccionado})")
+        st.markdown("Analiza automáticamente los juegos de la jornada para encontrar oportunidades de alto valor (F5 y Ponches).")
+        
+        if st.button(f"⚡ Escanear Mejores Picks de {dia_seleccionado}", type="primary"):
+            if not juegos:
+                st.warning("No hay juegos programados.")
+            else:
+                picks_mlb_ia = []
+                barra = st.progress(0)
+                status = st.empty()
+                total = len(juegos)
+                
+                # Limitamos a un máximo de 10 juegos para proteger el límite de peticiones de Tank01
+                juegos_a_escanear = juegos[:10]
+                total = len(juegos_a_escanear)
+                
+                for i, juego in enumerate(juegos_a_escanear):
+                    status.text(f"Analizando Pitchers: {juego['away']} vs {juego['home']}...")
+                    
+                    nv = obtener_nombre_pitcher(juego["v_id"])
+                    nl = obtener_nombre_pitcher(juego["l_id"])
+                    
+                    if nv != "TBA" and nl != "TBA" and nv != "LIMITE_API" and nl != "LIMITE_API":
+                        dv, err_v = obtener_estadisticas_avanzadas(nv)
+                        dl, err_l = obtener_estadisticas_avanzadas(nl)
+                        
+                        if dv and dl:
+                            # 1. Evaluar F5
+                            r_f5, s_f5, p_f5 = evaluar_f5_quirurgico(dv['sbr'], dv['whip'], dv['fip'], dv['era'], dl['sbr'], dl['whip'], dl['fip'], dl['era'], juego['away'], juego['home'])
+                            if s_f5 and p_f5 >= 75.0:
+                                picks_mlb_ia.append({"partido": juego['texto'], "mercado": "F5 / MITAD", "seleccion": s_f5, "probabilidad": p_f5, "razon": r_f5})
+                            
+                            # 2. Evaluar NRFI (1ra Entrada)
+                            r_1ra, s_1ra, p_1ra = evaluar_primera_entrada(dv['fip'], dv['era'], dl['fip'], dl['era'])
+                            if s_1ra and p_1ra >= 75.0:
+                                picks_mlb_ia.append({"partido": juego['texto'], "mercado": "1ra ENTRADA", "seleccion": s_1ra, "probabilidad": p_1ra, "razon": r_1ra})
+                                
+                            # 3. Evaluar Ponches (K's)
+                            rk_v, sk_v, pk_v = evaluar_ponches_draftea(dv['k9'], dv['avg_ip'], dv['nombre'])
+                            if sk_v and pk_v >= 75.0:
+                                picks_mlb_ia.append({"partido": juego['texto'], "mercado": "PONCHES", "seleccion": sk_v, "probabilidad": pk_v, "razon": rk_v})
+                                
+                            rk_l, sk_l, pk_l = evaluar_ponches_draftea(dl['k9'], dl['avg_ip'], dl['nombre'])
+                            if sk_l and pk_l >= 75.0:
+                                picks_mlb_ia.append({"partido": juego['texto'], "mercado": "PONCHES", "seleccion": sk_l, "probabilidad": pk_l, "razon": rk_l})
+                                
+                    barra.progress((i + 1) / total)
+                    # Pequeña pausa para no saturar la API
+                    time.sleep(1)
+                
+                status.text("¡Búsqueda finalizada!")
+                time.sleep(0.5)
+                status.empty()
+                barra.empty()
+                
+                picks_mlb_ia.sort(key=lambda x: x['probabilidad'], reverse=True)
+                st.session_state.picks_mlb_ia = picks_mlb_ia
+                st.session_state.ya_escaneo_mlb = True
+
+        if st.session_state.get("ya_escaneo_mlb", False):
+            if st.session_state.picks_mlb_ia:
+                st.success(f"¡El escáner encontró predicciones de pitcheo con alto valor para {dia_seleccionado.lower()}!")
+                for idx, pick in enumerate(st.session_state.picks_mlb_ia):
+                    with st.container(border=True):
+                        cp1, cp2, cp3 = st.columns([3, 1.5, 1])
+                        with cp1:
+                            st.markdown(f"⚾ **{pick.get('partido', '')}**")
+                            st.markdown(f"🎯 **PICK DIRECTO:** `{pick.get('seleccion', '')}`") 
+                            st.caption(f"💡 *Estadística:* {pick.get('razon', '')}")
+                        with cp2:
+                            st.metric(label="Confianza Real", value=f"{pick.get('probabilidad', 75.0)}%")
+                        with cp3:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            renderizar_boton_pick("Añadir", pick.get('partido', ''), pick.get('mercado', ''), pick.get('seleccion', ''), pick.get('probabilidad', 75.0), f"mlb_ai_{idx}")
+            else:
+                st.info(f"Para {dia_seleccionado.lower()} no se encontraron selecciones seguras de béisbol (o no hay pitchers confirmados aún).")
+
 
 # ==========================================
 # MÓDULO 2: FÚTBOL
