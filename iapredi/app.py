@@ -209,7 +209,7 @@ def evaluar_ponches_draftea(k9, avg_ip, nombre):
 
 
 # ==========================================
-# FUNCIONES: MOTOR FÚTBOL REAL
+# FUNCIONES: MOTOR FÚTBOL REAL (IA NARRATIVA)
 # ==========================================
 @st.cache_data(ttl=3600)
 def obtener_partidos_futbol(offset_dias):
@@ -266,8 +266,7 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
     def_h = float(comp.get("def", {}).get("home", "50%").replace("%", ""))
     def_a = float(comp.get("def", {}).get("away", "50%").replace("%", ""))
     
-    # 🚨 FILTRO ANTI-FANTASMAS (DATOS VACÍOS DE LA API) 🚨
-    # Si la API no tiene info real, devuelve 50 en todo por el fallback. Abortamos para no dar pronósticos falsos.
+    # Filtro Anti-Fantasmas
     if att_h == 50.0 and att_a == 50.0 and def_h == 50.0 and def_a == 50.0:
         return {
             "advice": "Información estadística aún no disponible en la API para este partido.",
@@ -281,76 +280,86 @@ def evaluar_futbol_real_api(datos_api, equipo_v, equipo_l):
     p_away = float(preds.get("percent", {}).get("away", "33%").replace("%", ""))
     advice = preds.get("advice", "Sin datos concluyentes").capitalize()
     
-    # Ganador
+    # 🎯 GANADOR (Con Justificaciones Dinámicas)
     if p_home >= 60.0 and (p_home - p_away) >= 25.0:
         ml_sel = f"Victoria Directa: {equipo_l}"
         ml_prob = round(p_home, 1)
-        ml_razon = f"Dominio claro de {equipo_l} ({p_home}% de probabilidad real)."
+        ml_razon = f"Dominio absoluto en casa. {equipo_l} tiene {p_home}% de probabilidad real de ganar frente a {equipo_v}."
     elif p_away >= 60.0 and (p_away - p_home) >= 25.0:
         ml_sel = f"Victoria Directa: {equipo_v}"
         ml_prob = round(p_away, 1)
-        ml_razon = f"Dominio claro de {equipo_v} ({p_away}% de probabilidad real)."
+        ml_razon = f"La visita es muy superior. {equipo_v} supera ampliamente las métricas de {equipo_l}."
     elif p_home >= 48.0 and (p_home - p_away) >= 15.0:
         ml_sel = f"Empate No Válido (DNB): {equipo_l}"
         ml_prob = round(p_home + (p_draw * 0.5), 1)
-        ml_razon = f"Ventaja para {equipo_l}. Si empatan, se reembolsa la apuesta."
+        ml_razon = f"{equipo_l} es superior pero hay riesgo. Te cubres y te reembolsan si {equipo_v} logra sacar el empate."
     elif p_away >= 48.0 and (p_away - p_home) >= 15.0:
         ml_sel = f"Empate No Válido (DNB): {equipo_v}"
         ml_prob = round(p_away + (p_draw * 0.5), 1)
-        ml_razon = f"Ventaja para {equipo_v}. Si empatan, se reembolsa la apuesta."
+        ml_razon = f"Ventaja para {equipo_v} de visita. Apuesta asegurada en caso de que {equipo_l} empate."
     else:
         favorito_real = equipo_l if p_home >= p_away else equipo_v
         ml_sel = f"⚠️ PASO: Partido Trampa / Sin Valor (Sugerencia: DNB {favorito_real})"
         ml_prob = round(max(p_home, p_away) + (p_draw * 0.5), 1)
-        ml_razon = "Probabilidades muy divididas. Riesgo alto, decisión del usuario."
+        ml_razon = f"Juego de moneda al aire entre {equipo_l} y {equipo_v}. Es mejor no arriesgar a ganador aquí."
 
-    # BTTS
+    # 🎯 BTTS (Con Justificaciones Dinámicas)
     potencial_goles_h = (att_h + (100 - def_a)) / 2
     potencial_goles_a = (att_a + (100 - def_h)) / 2
     
     if potencial_goles_h >= 55.0 and potencial_goles_a >= 55.0:
         btts_sel = "Ambos Equipos Anotan: SÍ"
         btts_prob = round((potencial_goles_h + potencial_goles_a) / 2, 1)
-        btts_razon = "Ambas ofensivas superan claramente a las defensas rivales."
+        btts_razon = f"Tanto {equipo_l} como {equipo_v} tienen ataques letales que superan a las defensas rivales."
     elif potencial_goles_h <= 38.0 or potencial_goles_a <= 38.0:
         btts_sel = "Ambos Equipos Anotan: NO"
         btts_prob = round(100 - ((potencial_goles_h + potencial_goles_a) / 2), 1)
-        btts_razon = "Al menos un equipo tiene ataque nulo o defensa impenetrable."
+        
+        # Evaluamos quién es el que falla para decírselo al usuario
+        if potencial_goles_h <= 38.0 and potencial_goles_a <= 38.0:
+            btts_razon = f"Falta de creatividad total. Ni {equipo_l} ni {equipo_v} generan suficiente peligro."
+        elif potencial_goles_h <= 38.0:
+            btts_razon = f"El ataque de {equipo_l} es casi nulo frente a la buena defensa de {equipo_v}."
+        else:
+            btts_razon = f"El ataque de {equipo_v} batalla demasiado para anotar frente a la defensa de {equipo_l}."
+            
     else:
         tendencia_btts = "SÍ" if (potencial_goles_h + potencial_goles_a) / 2 >= 50 else "NO"
-        btts_sel = f"⚠️ PASO: Partido Trampa (Sugerencia: {tendencia_btts})"
+        btts_sel = f"⚠️ PASO: Mercado Inestable (Sugerencia: {tendencia_btts})"
         btts_prob = round(max((potencial_goles_h + potencial_goles_a) / 2, 100 - ((potencial_goles_h + potencial_goles_a) / 2)), 1)
-        btts_razon = "Métricas sin tendencia clara. Decisión del usuario."
+        btts_razon = f"No hay una tendencia clara de ataque o defensa definida entre {equipo_l} y {equipo_v}."
 
-    # Goles
+    # 🎯 GOLES (Con Justificaciones Dinámicas)
     max_ataque = max(potencial_goles_h, potencial_goles_a)
     suma_ataque = potencial_goles_h + potencial_goles_a
+    equipo_power = equipo_l if potencial_goles_h >= potencial_goles_a else equipo_v
+    equipo_debil = equipo_v if potencial_goles_h >= potencial_goles_a else equipo_l
     
     if suma_ataque >= 135.0 or max_ataque >= 85.0:
         corner_sel = "🔥 Más de 3.5 Goles Totales"
         corner_prob = round(min(suma_ataque * 0.55, 95.0), 1)
-        corner_razon = f"Ataque letal o ida y vuelta brutal. Proyección métrica: {suma_ataque:.1f} pts."
+        corner_razon = f"Partido explosivo. {equipo_power} trae un ataque abrumador que garantiza goles en la cancha."
     elif suma_ataque >= 115.0 or max_ataque >= 72.0:
         corner_sel = "🚀 Más de 2.5 Goles Totales"
         corner_prob = round(min(suma_ataque * 0.65, 88.0), 1)
-        corner_razon = f"Poder ofensivo elevado. Proyección abierta. Métrica: {suma_ataque:.1f} pts."
+        corner_razon = f"Alto poder ofensivo. Proyección de partido abierto liderado por {equipo_power}."
     elif suma_ataque >= 90.0:
         corner_sel = "⚽ Más de 1.5 Goles Totales"
         corner_prob = round(min(suma_ataque * 0.75, 85.0), 1)
-        corner_razon = f"Probabilidad sólida de al menos 2 goles. Métrica: {suma_ataque:.1f} pts."
+        corner_razon = f"Se espera un juego movido. {equipo_l} y {equipo_v} deberían sumar al menos 2 goles."
     elif suma_ataque <= 55.0:
         corner_sel = "🧱 Menos de 1.5 Goles Totales"
         corner_prob = round(100 - (suma_ataque * 0.8), 1)
-        corner_razon = "Equipos inoperantes en ataque o defensas cerradas."
+        corner_razon = f"Juego sin ideas. Las ofensivas de {equipo_l} y {equipo_v} son inoperantes estadísticamente."
     elif suma_ataque <= 75.0:
         corner_sel = "🛡️ Menos de 2.5 Goles Totales"
         corner_prob = round(100 - (suma_ataque * 0.6), 1)
-        corner_razon = "Bajo promedio de gol esperado o partido muy trabado."
+        corner_razon = f"Bajo promedio de gol. Partido trabado, especialmente por la falta de ataque de {equipo_debil}."
     else:
         tend_goles = "Más de 1.5 Goles Totales" if suma_ataque >= 80.0 else "Menos de 3.5 Goles Totales"
         corner_sel = f"⚠️ PASO: Mercado Trampa (Sugerencia: {tend_goles})"
         corner_prob = 55.0
-        corner_razon = "Línea de goles sin valor estadístico agresivo. Decisión del usuario."
+        corner_razon = f"El choque entre {equipo_l} y {equipo_v} no arroja una línea clara de goles de valor."
 
     return {
         "advice": advice,
